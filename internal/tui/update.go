@@ -814,10 +814,10 @@ func (m Model) handleSplitViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.handleToggleSortOrder()
 
 	case "v":
-		// Start two-key sequence for view column toggles (vp=priority, vt=tags, vs=tests, va=all)
+		// Start two-key sequence for view column toggles (vp=priority, vt=tags, vm=model, va=all)
 		if m.activePanel == BallsPanel {
 			m.pendingKeySequence = "v"
-			m.message = "v: View columns... (p=priority, t=tags, s=tests, a=all)"
+			m.message = "v: View columns... (p=priority, t=tags, m=model, a=all)"
 			return m, nil
 		}
 		return m, nil

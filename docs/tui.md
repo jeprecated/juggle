@@ -41,54 +41,34 @@ juggle tui --help
 ### Workflow Example
 
 1. Launch TUI: `juggle tui`
-2. Use `↑`/`↓` to navigate balls
+2. Use `↑`/`↓` or `j`/`k` to navigate balls
 3. Press `tp` to toggle pending ball visibility
 4. Press `ss` to start the selected ball
-5. Press `Enter` to see ball details
-6. Press `b` to go back to list
-7. Press `s` then a state key to change state
-8. Press `x` to delete a ball (with confirmation)
-9. Press `p` to cycle priority levels
-10. Press `q` to quit
+5. Press `Enter` to edit ball details
+6. Press `Esc` to go back/cancel
+7. Press `s` then a state key to change state (e.g., `sc` for complete)
+8. Press `d` to delete a ball (with confirmation)
+9. Press `q` to quit
 
 ### Quick Actions
 
-The TUI supports several quick actions that work from the list view:
+The TUI uses two-key sequences for state changes (`s` + key):
 
-- **Start Ball (ss)**: Changes pending ball to in_progress
-  - Only works on pending balls
-  - Updates state immediately
-
-- **Complete Ball (sc)**: Marks in_progress ball as complete
-  - Only works on in_progress balls
-  - Archives the ball
-
-- **Block Ball (sb)**: Marks ball as blocked
-  - Prompts for a reason
-  - Works on pending or in_progress balls
-
+- **Start Ball (ss)**: Changes ball to in_progress
+- **Complete Ball (sc)**: Marks ball as complete and archives it
+- **Block Ball (sb)**: Marks ball as blocked (prompts for reason)
 - **Set Pending (sp)**: Changes ball to pending state
-  - Works from any state
-  - Useful for resetting balls
-
 - **Archive (sa)**: Archives a completed ball
-  - Only works on completed balls
-  - Moves to archive
 
-- **Delete Ball (x)**: Permanently deletes a ball
-  - Shows confirmation dialog with ball details
-  - Press `y` to confirm, `n` or `Esc` to cancel
-  - Safe deletion with explicit confirmation
-
-- **Cycle Priority (p)**: Changes ball priority
-  - Order: low → medium → high → urgent → low
-  - Works from any state
-  - Updates immediately
-
-- **Refresh (R)**: Reloads all balls from disk
-  - Use shift+r
-  - Shows "Reloading balls..." message
-  - Updates after external changes
+Other actions:
+- **Add Ball (a)**: Create a new ball
+- **Add Followup (A)**: Create a ball that depends on the selected ball
+- **Edit Ball (e)**: Edit ball in built-in form
+- **Edit in $EDITOR (E)**: Edit ball in external editor (YAML format)
+- **Delete Ball (d)**: Delete ball with confirmation
+- **Multi-select (Space)**: Toggle ball selection, move cursor down
+- **Copy Ball ID (y)**: Copy ball ID to clipboard
+- **Refresh (R)**: Reload all balls from disk
 
 ### Filtering
 
@@ -110,6 +90,63 @@ Use two-key sequences with `t` to toggle filter visibility by state:
 - Current filters shown in stats bar
 
 The current filter is shown in the stats bar.
+
+### View Options
+
+- **i** - Cycle bottom pane mode (activity → detail → split)
+- **o** - Toggle sort order (ID↑ → ID↓ → Priority → Activity → Created)
+- **O** - Toggle agent output panel visibility
+- **P** - Toggle project scope (local ↔ all projects)
+- **R** - Refresh/reload all data
+- **?** - Toggle help view
+
+### View Columns (v + key)
+
+- **vp** - Toggle priority column visibility
+- **vt** - Toggle tags column visibility
+- **vm** - Toggle model size column visibility
+- **va** - Toggle all optional columns on/off
+
+### Session Shortcuts (m/M + digit)
+
+Move or add balls to sessions quickly:
+- **m1-m9, m0** - Move ball to session 1-9 or 10 (replaces existing session tags)
+- **M1-M9, M0** - Add ball to session 1-9 or 10 (keeps existing session tags)
+- **Backspace** - Remove ball from current session
+
+### Agent Control
+
+- **W** - Enter agent monitor view (when agent is running)
+- **X** - Cancel running agent (with confirmation)
+- **H** - View agent run history
+
+### Agent Monitor View Keybinds
+
+When in agent monitor view (press W to enter):
+- **p** - Pause agent after current iteration
+- **r** - Resume paused agent
+- **n** - Skip to next ball
+- **j/k, ↑/↓** - Scroll output
+- **Ctrl+D/Ctrl+U** - Page down/up
+- **gg/G** - Go to top/bottom
+- **q/Esc** - Exit monitor (agent continues)
+- **X** - Cancel agent
+
+### Navigation
+
+- **Tab / l** - Next panel (Sessions → Balls → Activity)
+- **Shift+Tab / h** - Previous panel
+- **j / ↓** - Move down / Scroll down
+- **k / ↑** - Move up / Scroll up
+- **[ / ]** - Switch to previous/next session (in balls panel)
+- **Enter** - Select/expand item
+- **Esc** - Back / Cancel / Clear selection
+- **Ctrl+D** - Page down
+- **Ctrl+U** - Page up (or clear filter)
+- **gg** - Go to top
+- **G** - Go to bottom
+- **/** - Open search/filter for current panel
+- **q / Ctrl+C** - Quit application
 
 ## Architecture
 

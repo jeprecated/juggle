@@ -12,8 +12,8 @@ Navigation␤
   Shift+Tab / h    Previous panel␤
   j / ↓            Move down / Scroll down␤
   k / ↑            Move up / Scroll up␤
-  Enter            Select item / Expand␤
-  Space            Go back (in Balls panel)␤
+  [ / ]            Previous / Next session (in Balls panel)␤
+  Enter            Select item / Edit␤
   Esc              Back / Deselect / Close␤
 ␤
 Sessions Panel␤
@@ -28,6 +28,6 @@ Sessions Panel␤
 ␤
 Balls Panel - State Changes (s + key)␤
                                      ␤
-  ↓ 75 more lines below␤
+  ↓ 80 more lines below␤
 ␤
 j/k = scroll | ? or Esc = close help🛇

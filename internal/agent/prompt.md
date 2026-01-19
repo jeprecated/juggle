@@ -86,7 +86,32 @@ Review these sections to understand the current state.
 - Do not refactor unrelated code
 - Complete all acceptance criteria for the selected ball before marking it complete
 
-### 4. Verify
+### 4. Headless Mode Restrictions
+
+**When running in headless/autonomous mode, certain actions are restricted to prevent unintended consequences:**
+
+#### Files That Require Human Review
+The following files should NOT be modified without explicit human approval:
+- **CLAUDE.md** (`.claude/CLAUDE.md`, project-level `CLAUDE.md`) - Contains user instructions and project context that shape AI behavior
+- **settings.local.json** (`.claude/settings.local.json`) - User-specific Claude Code settings
+- **Configuration files with sensitive data** - Files containing API keys, credentials, or personal information
+
+#### Actions to Avoid in Headless Mode
+1. **Do not modify AI instruction files** - CLAUDE.md files define how the AI should work and require human oversight
+2. **Do not update sandbox settings** - `.claude/settings.local.json` is blocked by sandbox and requires human configuration
+3. **Do not commit sensitive files** - Never include files from `./secrets/` or files matching `.gitignore` patterns for credentials
+4. **Do not perform destructive operations without verification** - Deletions, force-pushes, or irreversible changes should be avoided
+5. **Do not modify files outside the project scope** - Stay within the current working directory and project boundaries
+
+#### Sandbox-Blocked Files
+These files are typically protected by the Claude Code sandbox and cannot be accessed:
+- `.claude/settings.local.json` - Sandbox explicitly blocks write access
+- `.env` files in the root directory - Protected by sandbox read restrictions
+- Files in `./secrets/` directory - Restricted by sandbox configuration
+
+**If you encounter a task that requires modifying these files, mark the ball as BLOCKED with a clear explanation of why human intervention is needed.**
+
+### 5. Verify
 
 Run the verification commands required by the ball's acceptance criteria:
 - If build is required: run the project's build command
@@ -94,7 +119,7 @@ Run the verification commands required by the ball's acceptance criteria:
 - Fix any failures before proceeding
 - All required checks must pass before signaling completion
 
-### 5. Update Juggler State (MANDATORY)
+### 6. Update Juggler State (MANDATORY)
 
 **CRITICAL: You MUST update progress BEFORE emitting any BLOCKED, CONTINUE, or COMPLETE signal.**
 
