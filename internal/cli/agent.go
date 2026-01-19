@@ -423,6 +423,16 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 		if err := daemon.WritePIDFile(config.ProjectDir, storageID, daemonInfo); err != nil {
 			return nil, fmt.Errorf("failed to write daemon PID file: %w", err)
 		}
+		// Write initial state with Iteration=0 so monitor shows 0/X before first iteration starts
+		initialState := &daemon.State{
+			Running:       true,
+			Iteration:     0,
+			MaxIterations: config.MaxIterations,
+			Model:         config.Model,
+			Provider:      config.Provider,
+			StartedAt:     startTime,
+		}
+		_ = daemon.WriteStateFile(config.ProjectDir, storageID, initialState)
 		// Ensure cleanup on exit - write final state first so TUI can detect exit
 		defer func() {
 			// Build status message from result
