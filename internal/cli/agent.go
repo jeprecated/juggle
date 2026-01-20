@@ -2616,6 +2616,11 @@ func writeBallForRefine(buf *strings.Builder, ball *session.Ball) {
 	// Title
 	buf.WriteString(fmt.Sprintf("Title: %s\n", ball.Title))
 
+	// Context (full task description if different from title)
+	if ball.Context != "" && ball.Context != ball.Title {
+		buf.WriteString(fmt.Sprintf("Context: %s\n", ball.Context))
+	}
+
 	// Project directory
 	if ball.WorkingDir != "" {
 		buf.WriteString(fmt.Sprintf("Project: %s\n", ball.WorkingDir))

@@ -534,6 +534,11 @@ func writeBallForRalph(buf *strings.Builder, ball *session.Ball) {
 	// Title
 	buf.WriteString(fmt.Sprintf("Title: %s\n", ball.Title))
 
+	// Context (full task description if different from title)
+	if ball.Context != "" && ball.Context != ball.Title {
+		buf.WriteString(fmt.Sprintf("Context: %s\n", ball.Context))
+	}
+
 	// Acceptance criteria (preferred over deprecated Description)
 	if len(ball.AcceptanceCriteria) > 0 {
 		buf.WriteString("Acceptance Criteria:\n")
@@ -744,6 +749,11 @@ func writeBallForAgent(buf *strings.Builder, ball *session.Ball) {
 
 	// Title
 	buf.WriteString(fmt.Sprintf("Title: %s\n", ball.Title))
+
+	// Context (full task description if different from title)
+	if ball.Context != "" && ball.Context != ball.Title {
+		buf.WriteString(fmt.Sprintf("Context: %s\n", ball.Context))
+	}
 
 	// Acceptance criteria
 	if len(ball.AcceptanceCriteria) > 0 {
