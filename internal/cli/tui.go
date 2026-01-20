@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/ohare93/juggle/internal/session"
@@ -130,10 +131,94 @@ func runTUI(cmd *cobra.Command, args []string) error {
 				Interactive:   true,  // Interactive mode for user involvement
 			}
 
-			_, err := RunAgentLoop(agentConfig)
+			result, err := RunAgentLoop(agentConfig)
 			if err != nil {
 				return fmt.Errorf("agent error: %w", err)
 			}
+
+			// Offer to commit after agent finishes
+			if err := offerCommitAfterRun(workingDir, store, ballID, result); err != nil {
+				// Non-fatal - just log the error
+				fmt.Fprintf(os.Stderr, "Warning: commit prompt failed: %v\n", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// offerCommitAfterRun prompts the user to commit changes after an agent run.
+// It uses the agent's commit message if available, otherwise falls back to "feat: <ballID>: <title>".
+func offerCommitAfterRun(projectDir string, store *session.Store, ballID string, result *AgentResult) error {
+	const maxTitleLength = 50
+
+	// Construct commit message
+	var commitMsg string
+
+	if result != nil && result.CommitMessage != "" {
+		// Use agent-provided commit message (sanitized)
+		commitMsg = strings.TrimSpace(result.CommitMessage)
+	} else {
+		// Fall back to "feat: <ballID>: <title>"
+		ball, err := store.GetBallByID(ballID)
+		if err != nil {
+			// Can't get ball title, use just the ball ID
+			commitMsg = fmt.Sprintf("feat: %s", ballID)
+		} else {
+			title := ball.Title
+			if title == "" {
+				title = ball.Context
+				// Truncate context if too long (use rune counting for Unicode safety)
+				runes := []rune(title)
+				if len(runes) > maxTitleLength {
+					title = string(runes[:maxTitleLength-3]) + "..."
+				}
+			}
+			if title != "" {
+				commitMsg = fmt.Sprintf("feat: %s: %s", ballID, title)
+			} else {
+				commitMsg = fmt.Sprintf("feat: %s", ballID)
+			}
+		}
+	}
+
+	// Show commit message and prompt
+	fmt.Println()
+	fmt.Println("─────────────────────────────────────────────────────")
+	fmt.Println("Proposed commit message:")
+	fmt.Printf("  %s\n", commitMsg)
+	fmt.Println("─────────────────────────────────────────────────────")
+
+	confirmed, err := ConfirmSingleKey("Commit changes?")
+	if err != nil {
+		// User cancelled or terminal error - skip commit
+		fmt.Printf("Skipping commit: %v\n", err)
+		return nil
+	}
+
+	if !confirmed {
+		fmt.Println("Skipping commit.")
+		return nil
+	}
+
+	// Perform the commit
+	commitResult, err := performVCSCommit(projectDir, commitMsg)
+	if err != nil {
+		return fmt.Errorf("commit failed: %w", err)
+	}
+
+	if commitResult.Success {
+		if commitResult.CommitHash != "" {
+			fmt.Printf("📝 Committed: %s\n", commitResult.CommitHash)
+		}
+		if commitResult.StatusOutput != "" && commitResult.StatusOutput != "No changes to commit" {
+			fmt.Printf("📊 Status: %s\n", commitResult.StatusOutput)
+		}
+	} else if commitResult.ErrorMessage != "" {
+		if commitResult.ErrorMessage == "no changes to commit" {
+			fmt.Println("No changes to commit.")
+		} else {
+			fmt.Printf("⚠️  Commit failed: %s\n", commitResult.ErrorMessage)
 		}
 	}
 

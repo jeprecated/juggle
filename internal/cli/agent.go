@@ -311,6 +311,7 @@ type AgentResult struct {
 	BallsTotal         int           `json:"balls_total"`
 	StartedAt          time.Time     `json:"started_at"`
 	EndedAt            time.Time     `json:"ended_at"`
+	CommitMessage      string        `json:"commit_message,omitempty"` // Commit message from agent (if provided)
 }
 
 // AgentLoopConfig configures the agent loop behavior
@@ -843,6 +844,7 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 					result.BallsComplete = complete
 					result.BallsBlocked = blocked
 					result.BallsTotal = total
+					result.CommitMessage = runResult.CommitMessage
 					break
 				}
 				// Signal was premature - log warning and continue
