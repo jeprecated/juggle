@@ -65,6 +65,7 @@ const (
 	BottomPaneActivity BottomPaneMode = iota // Show activity log
 	BottomPaneDetail                         // Show highlighted ball details
 	BottomPaneSplit                          // Show both activity and details side by side
+	BottomPaneUpdates                        // Show updates history (hook events + phase changes)
 )
 
 // SortOrder represents how balls are sorted
@@ -243,6 +244,11 @@ type Model struct {
 	agentDaemonError        string          // Error message from daemon (displayed prominently)
 	agentMetrics            *AgentMetricsState // Hook-provided metrics (files changed, tool counts, tokens)
 
+	// Updates history state (from hooks and agent loop updates)
+	updatesHistory       []*session.UpdateEntry // All update entries from updates.jsonl
+	updatesHistoryOffset int                    // Scroll offset for updates history view
+	updatesTypeFilters   map[session.UpdateType]bool // Filter toggles for update types (true = visible)
+
 	// Time provider for testability
 	nowFunc func() time.Time // Can be overridden in tests
 }
@@ -298,6 +304,14 @@ func InitialSplitModelWithWatcher(store *session.Store, sessionStore *session.Se
 		selectedBalls:       make(map[string]bool),
 		sessionCursor:       0,
 		activityLog:         make([]ActivityEntry, 0),
+		// Updates history filter defaults (all visible by default)
+		updatesTypeFilters: map[session.UpdateType]bool{
+			session.UpdateTypePhase:       true,
+			session.UpdateTypeToolUse:     true,
+			session.UpdateTypeToolFailure: true,
+			session.UpdateTypeStop:        true,
+			session.UpdateTypeSessionEnd:  true,
+		},
 		textInput:           ti,
 		contextInput:        newContextTextarea(),
 		fileWatcher:         w,
@@ -335,6 +349,14 @@ func InitialMonitorModel(store *session.Store, sessionStore *session.SessionStor
 		selectedBalls:       make(map[string]bool),
 		sessionCursor:       0,
 		activityLog:         make([]ActivityEntry, 0),
+		// Updates history filter defaults (all visible by default)
+		updatesTypeFilters: map[session.UpdateType]bool{
+			session.UpdateTypePhase:       true,
+			session.UpdateTypeToolUse:     true,
+			session.UpdateTypeToolFailure: true,
+			session.UpdateTypeStop:        true,
+			session.UpdateTypeSessionEnd:  true,
+		},
 		textInput:           ti,
 		contextInput:        newContextTextarea(),
 		fileWatcher:         w,
@@ -364,10 +386,11 @@ func (m Model) Init() tea.Cmd {
 		cmds = append(cmds, loadDaemonStateCmd(m.store.ProjectDir(), m.agentStatus.SessionID))
 		cmds = append(cmds, m.agentSpinner.Tick)
 		cmds = append(cmds, startLogTailCmd(m.store.ProjectDir(), m.agentStatus.SessionID, true))
-		// Also load agent update for phase info and metrics
+		// Also load agent update for phase info, metrics, and updates history
 		if m.sessionStore != nil {
 			cmds = append(cmds, loadAgentUpdateCmd(m.sessionStore, m.agentStatus.SessionID))
 			cmds = append(cmds, loadAgentMetricsCmd(m.sessionStore, m.agentStatus.SessionID))
+			cmds = append(cmds, loadUpdatesHistoryCmd(m.sessionStore, m.agentStatus.SessionID))
 		}
 	}
 	return tea.Batch(cmds...)
@@ -449,6 +472,31 @@ func (m Model) getAgentOutputMaxOffset() int {
 		maxOffset = 0
 	}
 	return maxOffset
+}
+
+// getUpdatesHistoryMaxOffset returns the maximum scroll offset for updates history
+func (m Model) getUpdatesHistoryMaxOffset() int {
+	visibleLines := m.getAgentOutputVisibleLines() // Reuse same height calculation
+	filtered := m.getFilteredUpdates()
+	maxOffset := len(filtered) - visibleLines
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	return maxOffset
+}
+
+// getFilteredUpdates returns updates filtered by the type filters
+func (m Model) getFilteredUpdates() []*session.UpdateEntry {
+	if m.updatesTypeFilters == nil {
+		return m.updatesHistory
+	}
+	var filtered []*session.UpdateEntry
+	for _, u := range m.updatesHistory {
+		if m.updatesTypeFilters[u.Type] {
+			filtered = append(filtered, u)
+		}
+	}
+	return filtered
 }
 
 // getAgentOutputVisibleLines returns the number of visible lines in the agent output panel

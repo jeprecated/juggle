@@ -864,3 +864,20 @@ func loadAgentMetricsCmd(sessionStore *session.SessionStore, sessionID string) t
 		}
 	}
 }
+
+// updatesHistoryLoadedMsg is sent when updates.jsonl is loaded
+type updatesHistoryLoadedMsg struct {
+	updates []*session.UpdateEntry
+	err     error
+}
+
+// loadUpdatesHistoryCmd creates a command that loads the updates history from the JSONL file
+func loadUpdatesHistoryCmd(sessionStore *session.SessionStore, sessionID string) tea.Cmd {
+	return func() tea.Msg {
+		updates, err := sessionStore.LoadUpdates(sessionID)
+		if err != nil {
+			return updatesHistoryLoadedMsg{err: err}
+		}
+		return updatesHistoryLoadedMsg{updates: updates}
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ohare93/juggle/internal/agent/daemon"
 	"github.com/ohare93/juggle/internal/session"
 	"github.com/spf13/cobra"
 )
@@ -157,6 +158,15 @@ func runLoopUpdate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Append to updates history for the main view display
+	// Get iteration from daemon state if available
+	iteration := 0
+	if daemonState, err := daemon.ReadStateFile(cwd, storageID); err == nil && daemonState != nil {
+		iteration = daemonState.Iteration
+	}
+	update := session.NewPhaseUpdate(ballID, state, message, iteration)
+	_ = store.AppendUpdate(storageID, update) // Ignore errors to not disrupt agent
+
 	if loopUpdateJSONFlag {
 		return printLoopUpdateJSONSuccess(sessionID, ballID, state, message, timestamp)
 	}
@@ -274,6 +284,10 @@ func handlePostToolEvent(store *session.SessionStore, sessionID string, inputDat
 	// Determine the file path from tool input
 	filePath := payload.ToolInput.FilePath
 
+	// Append to updates history (ignore errors to not block agent)
+	update := session.NewToolUseUpdate(payload.ToolName, filePath)
+	_ = store.AppendUpdate(sessionID, update)
+
 	return store.UpdateMetricsFromPostTool(sessionID, payload.ToolName, filePath)
 }
 
@@ -282,6 +296,10 @@ func handleToolFailureEvent(store *session.SessionStore, sessionID string, input
 	if err := json.Unmarshal(inputData, &payload); err != nil {
 		return nil // Invalid JSON, fail silently
 	}
+
+	// Append to updates history (ignore errors to not block agent)
+	update := session.NewToolFailureUpdate(payload.ToolName)
+	_ = store.AppendUpdate(sessionID, update)
 
 	return store.UpdateMetricsFromToolFailure(sessionID, payload.ToolName)
 }
@@ -292,6 +310,14 @@ func handleStopEvent(store *session.SessionStore, sessionID string, inputData []
 		return nil // Invalid JSON, fail silently
 	}
 
+	// Append to updates history (ignore errors to not block agent)
+	update := session.NewStopUpdate(
+		payload.Usage.InputTokens,
+		payload.Usage.OutputTokens,
+		payload.Usage.CacheReadInputTokens,
+	)
+	_ = store.AppendUpdate(sessionID, update)
+
 	return store.UpdateMetricsFromStop(
 		sessionID,
 		payload.Usage.InputTokens,
@@ -301,5 +327,9 @@ func handleStopEvent(store *session.SessionStore, sessionID string, inputData []
 }
 
 func handleSessionEndEvent(store *session.SessionStore, sessionID string) error {
+	// Append to updates history (ignore errors to not block agent)
+	update := session.NewSessionEndUpdate()
+	_ = store.AppendUpdate(sessionID, update)
+
 	return store.UpdateMetricsFromSessionEnd(sessionID)
 }

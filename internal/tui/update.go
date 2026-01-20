@@ -416,6 +416,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.agentMetrics = msg.metrics
 		return m, nil
 
+	case updatesHistoryLoadedMsg:
+		if msg.err != nil {
+			// Silently ignore errors loading updates history
+			return m, nil
+		}
+		// Update updates history state
+		m.updatesHistory = msg.updates
+		// Auto-scroll to bottom when new updates arrive
+		m.updatesHistoryOffset = m.getUpdatesHistoryMaxOffset()
+		return m, nil
+
 	case logTailerStartedMsg:
 		// Store the log tailer and start listening for log lines
 		m.agentLogTailer = msg.tailer
@@ -804,6 +815,10 @@ func (m Model) handleSplitViewKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "i":
 		// Toggle bottom pane between activity log and ball detail
 		return m.handleToggleBottomPane()
+
+	case "u":
+		// Cycle update type filters (only in Updates view)
+		return m.handleCycleUpdateFilter()
 
 	case "P":
 		// Toggle between local project only and all projects
@@ -1351,6 +1366,13 @@ func (m Model) handleWatcherEvent(event watcher.Event) (tea.Model, tea.Cmd) {
 		if event.SessionID != "" && event.SessionID == m.agentStatus.SessionID {
 			// Load the updated agent metrics
 			cmds = append(cmds, loadAgentMetricsCmd(m.sessionStore, event.SessionID))
+		}
+
+	case watcher.UpdatesHistoryChanged:
+		// Updates history file changed - update display if in monitor view
+		if event.SessionID != "" && event.SessionID == m.agentStatus.SessionID {
+			// Load the updated updates history
+			cmds = append(cmds, loadUpdatesHistoryCmd(m.sessionStore, event.SessionID))
 		}
 	}
 

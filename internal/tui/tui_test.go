@@ -943,7 +943,7 @@ func TestCountBallsForSessionExcludesCompleted(t *testing.T) {
 	}
 }
 
-// Test bottom pane mode toggle cycles through all three modes
+// Test bottom pane mode toggle cycles through all four modes
 func TestBottomPaneModeToggle(t *testing.T) {
 	model := Model{
 		bottomPaneMode: BottomPaneActivity,
@@ -964,11 +964,18 @@ func TestBottomPaneModeToggle(t *testing.T) {
 		t.Errorf("Expected BottomPaneSplit after second toggle, got %v", m.bottomPaneMode)
 	}
 
+	// Toggle to updates
+	newModel, _ = m.handleToggleBottomPane()
+	m = newModel.(Model)
+	if m.bottomPaneMode != BottomPaneUpdates {
+		t.Errorf("Expected BottomPaneUpdates after third toggle, got %v", m.bottomPaneMode)
+	}
+
 	// Toggle back to activity
 	newModel, _ = m.handleToggleBottomPane()
 	m = newModel.(Model)
 	if m.bottomPaneMode != BottomPaneActivity {
-		t.Errorf("Expected BottomPaneActivity after third toggle, got %v", m.bottomPaneMode)
+		t.Errorf("Expected BottomPaneActivity after fourth toggle, got %v", m.bottomPaneMode)
 	}
 }
 

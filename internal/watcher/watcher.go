@@ -17,9 +17,10 @@ const (
 	BallsChanged EventType = iota
 	ProgressChanged
 	SessionChanged
-	AgentStateChanged   // Daemon state file (agent.state) changed
-	AgentUpdateChanged  // Agent loop update file (agent-update.txt) changed
-	AgentMetricsChanged // Hook metrics file (agent-metrics.json) changed
+	AgentStateChanged    // Daemon state file (agent.state) changed
+	AgentUpdateChanged   // Agent loop update file (agent-update.txt) changed
+	AgentMetricsChanged  // Hook metrics file (agent-metrics.json) changed
+	UpdatesHistoryChanged // Updates history file (updates.jsonl) changed
 )
 
 // Event represents a file change event
@@ -220,6 +221,19 @@ func (w *Watcher) classifyEvent(path string) *Event {
 		if strings.Contains(path, "sessions") {
 			return &Event{
 				Type:      AgentMetricsChanged,
+				Path:      path,
+				SessionID: sessionID,
+			}
+		}
+	}
+
+	// Check for updates.jsonl changes (updates history file)
+	if base == "updates.jsonl" {
+		dir := filepath.Dir(path)
+		sessionID := filepath.Base(dir)
+		if strings.Contains(path, "sessions") {
+			return &Event{
+				Type:      UpdatesHistoryChanged,
 				Path:      path,
 				SessionID: sessionID,
 			}

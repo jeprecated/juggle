@@ -414,7 +414,7 @@ func (m Model) handleSessionSwitchNext() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleToggleBottomPane cycles through activity log, ball detail, and split view
+// handleToggleBottomPane cycles through activity log, ball detail, split view, and updates
 func (m Model) handleToggleBottomPane() (tea.Model, tea.Cmd) {
 	switch m.bottomPaneMode {
 	case BottomPaneActivity:
@@ -425,9 +425,114 @@ func (m Model) handleToggleBottomPane() (tea.Model, tea.Cmd) {
 		m.bottomPaneMode = BottomPaneSplit
 		m.addActivity("Showing split view (details + activity)")
 	case BottomPaneSplit:
+		m.bottomPaneMode = BottomPaneUpdates
+		m.updatesHistoryOffset = 0 // Reset scroll on mode change
+		m.addActivity("Showing updates history in bottom pane")
+	case BottomPaneUpdates:
 		m.bottomPaneMode = BottomPaneActivity
 		m.addActivity("Showing activity log in bottom pane")
 	}
+	return m, nil
+}
+
+// handleCycleUpdateFilter cycles through update type filters when in Updates view.
+// Cycles through: all → phase only → tool only → stop only → phase+tool → all
+func (m Model) handleCycleUpdateFilter() (tea.Model, tea.Cmd) {
+	if m.bottomPaneMode != BottomPaneUpdates {
+		m.message = "Update filters only available in Updates view (press 'i' to cycle)"
+		return m, nil
+	}
+
+	// Check current state to determine next state
+	allOn := m.updatesTypeFilters[session.UpdateTypePhase] &&
+		m.updatesTypeFilters[session.UpdateTypeToolUse] &&
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] &&
+		m.updatesTypeFilters[session.UpdateTypeStop] &&
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd]
+
+	phaseOnly := m.updatesTypeFilters[session.UpdateTypePhase] &&
+		!m.updatesTypeFilters[session.UpdateTypeToolUse] &&
+		!m.updatesTypeFilters[session.UpdateTypeToolFailure] &&
+		!m.updatesTypeFilters[session.UpdateTypeStop] &&
+		!m.updatesTypeFilters[session.UpdateTypeSessionEnd]
+
+	toolOnly := !m.updatesTypeFilters[session.UpdateTypePhase] &&
+		m.updatesTypeFilters[session.UpdateTypeToolUse] &&
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] &&
+		!m.updatesTypeFilters[session.UpdateTypeStop] &&
+		!m.updatesTypeFilters[session.UpdateTypeSessionEnd]
+
+	stopOnly := !m.updatesTypeFilters[session.UpdateTypePhase] &&
+		!m.updatesTypeFilters[session.UpdateTypeToolUse] &&
+		!m.updatesTypeFilters[session.UpdateTypeToolFailure] &&
+		m.updatesTypeFilters[session.UpdateTypeStop] &&
+		!m.updatesTypeFilters[session.UpdateTypeSessionEnd]
+
+	phaseAndTool := m.updatesTypeFilters[session.UpdateTypePhase] &&
+		m.updatesTypeFilters[session.UpdateTypeToolUse] &&
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] &&
+		!m.updatesTypeFilters[session.UpdateTypeStop] &&
+		!m.updatesTypeFilters[session.UpdateTypeSessionEnd]
+
+	// Cycle to next state
+	switch {
+	case allOn:
+		// All on -> Phase only
+		m.updatesTypeFilters[session.UpdateTypePhase] = true
+		m.updatesTypeFilters[session.UpdateTypeToolUse] = false
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] = false
+		m.updatesTypeFilters[session.UpdateTypeStop] = false
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd] = false
+		m.message = "Updates: phase only"
+		m.addActivity("Filtering updates: phase only")
+	case phaseOnly:
+		// Phase only -> Tool only
+		m.updatesTypeFilters[session.UpdateTypePhase] = false
+		m.updatesTypeFilters[session.UpdateTypeToolUse] = true
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] = true
+		m.updatesTypeFilters[session.UpdateTypeStop] = false
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd] = false
+		m.message = "Updates: tools only"
+		m.addActivity("Filtering updates: tools only")
+	case toolOnly:
+		// Tool only -> Stop only
+		m.updatesTypeFilters[session.UpdateTypePhase] = false
+		m.updatesTypeFilters[session.UpdateTypeToolUse] = false
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] = false
+		m.updatesTypeFilters[session.UpdateTypeStop] = true
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd] = false
+		m.message = "Updates: stops only"
+		m.addActivity("Filtering updates: stops only")
+	case stopOnly:
+		// Stop only -> Phase + Tool
+		m.updatesTypeFilters[session.UpdateTypePhase] = true
+		m.updatesTypeFilters[session.UpdateTypeToolUse] = true
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] = true
+		m.updatesTypeFilters[session.UpdateTypeStop] = false
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd] = false
+		m.message = "Updates: phase + tools"
+		m.addActivity("Filtering updates: phase + tools")
+	case phaseAndTool:
+		// Phase + Tool -> All on
+		m.updatesTypeFilters[session.UpdateTypePhase] = true
+		m.updatesTypeFilters[session.UpdateTypeToolUse] = true
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] = true
+		m.updatesTypeFilters[session.UpdateTypeStop] = true
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd] = true
+		m.message = "Updates: showing all"
+		m.addActivity("Filtering updates: showing all")
+	default:
+		// Unknown state -> Reset to all on
+		m.updatesTypeFilters[session.UpdateTypePhase] = true
+		m.updatesTypeFilters[session.UpdateTypeToolUse] = true
+		m.updatesTypeFilters[session.UpdateTypeToolFailure] = true
+		m.updatesTypeFilters[session.UpdateTypeStop] = true
+		m.updatesTypeFilters[session.UpdateTypeSessionEnd] = true
+		m.message = "Updates: showing all"
+		m.addActivity("Filtering updates: showing all")
+	}
+
+	m.updatesHistoryOffset = 0 // Reset scroll when filter changes
 	return m, nil
 }
 

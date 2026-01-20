@@ -98,6 +98,8 @@ func (m Model) renderSplitView() string {
 			bottomPanel = m.renderBallDetailPanel(m.width-2, effectiveBottomRows-2)
 		case BottomPaneSplit:
 			bottomPanel = m.renderSplitBottomPane(m.width-2, effectiveBottomRows-2)
+		case BottomPaneUpdates:
+			bottomPanel = m.renderUpdatesPanel(m.width-2, effectiveBottomRows-2)
 		default:
 			bottomPanel = m.renderActivityPanel(m.width-2, effectiveBottomRows-2)
 		}
@@ -556,6 +558,104 @@ func (m Model) renderActivityPanel(width, height int) string {
 	return b.String()
 }
 
+// renderUpdatesPanel renders the bottom panel with updates history (hook events + phase changes)
+func (m Model) renderUpdatesPanel(width, height int) string {
+	var b strings.Builder
+
+	// Get filtered updates
+	filtered := m.getFilteredUpdates()
+
+	// Title with filter indicator
+	title := "Updates History"
+	if m.activePanel == ActivityPanel {
+		// Show scroll position when active
+		if len(filtered) > height {
+			title = fmt.Sprintf("Updates History [%d/%d]", m.updatesHistoryOffset+1, len(filtered))
+		}
+		b.WriteString(activePanelTitleStyle.Render(title) + "\n")
+	} else {
+		b.WriteString(panelTitleStyle.Render(title) + "\n")
+	}
+
+	if len(filtered) == 0 {
+		if len(m.updatesHistory) == 0 {
+			b.WriteString(activityLogStyle.Render("  No updates yet"))
+		} else {
+			b.WriteString(activityLogStyle.Render("  All updates filtered (press 'u' to toggle filters)"))
+		}
+		return b.String()
+	}
+
+	// Calculate visible range using scroll offset
+	visibleLines := height - 1 // Account for title
+	if visibleLines < 1 {
+		visibleLines = 1
+	}
+
+	startIdx := m.updatesHistoryOffset
+	endIdx := startIdx + visibleLines
+	if endIdx > len(filtered) {
+		endIdx = len(filtered)
+	}
+
+	// Show scroll indicator at top if not at beginning
+	if startIdx > 0 && m.activePanel == ActivityPanel {
+		b.WriteString(helpStyle.Render(fmt.Sprintf("  ↑ %d more entries above", startIdx)) + "\n")
+		endIdx-- // Reduce visible entries to make room for indicator
+	}
+
+	for i := startIdx; i < endIdx; i++ {
+		entry := filtered[i]
+		line := m.formatUpdateEntry(entry, width-4)
+		b.WriteString(line + "\n")
+	}
+
+	// Show scroll indicator at bottom if more entries
+	remaining := len(filtered) - endIdx
+	if remaining > 0 && m.activePanel == ActivityPanel {
+		b.WriteString(helpStyle.Render(fmt.Sprintf("  ↓ %d more entries below", remaining)))
+	}
+
+	return b.String()
+}
+
+// formatUpdateEntry formats a single update entry for display
+func (m Model) formatUpdateEntry(entry *session.UpdateEntry, width int) string {
+	timeStr := entry.Timestamp.Format("15:04:05")
+
+	// Style based on update type
+	var typeIcon, msgStyle string
+	switch entry.Type {
+	case session.UpdateTypePhase:
+		typeIcon = "●" // Phase update
+		msgStyle = "6" // Cyan
+	case session.UpdateTypeToolUse:
+		typeIcon = "▸" // Tool use
+		msgStyle = "8" // Gray
+	case session.UpdateTypeToolFailure:
+		typeIcon = "✗" // Tool failure
+		msgStyle = "1" // Red
+	case session.UpdateTypeStop:
+		typeIcon = "◦" // Stop/turn complete
+		msgStyle = "8" // Gray
+	case session.UpdateTypeSessionEnd:
+		typeIcon = "■" // Session end
+		msgStyle = "3" // Yellow
+	default:
+		typeIcon = "·"
+		msgStyle = "8"
+	}
+
+	msg := entry.Message
+	if len(msg) > width-15 {
+		msg = msg[:width-18] + "..."
+	}
+
+	// Format: "  HH:MM:SS ● message"
+	line := fmt.Sprintf("  %s %s %s", timeStr, typeIcon, msg)
+	return lipgloss.NewStyle().Foreground(lipgloss.Color(msgStyle)).Render(line)
+}
+
 // renderBallDetailPanel renders the bottom panel with highlighted ball details
 func (m Model) renderBallDetailPanel(width, height int) string {
 	var b strings.Builder
@@ -857,6 +957,8 @@ func (m Model) renderStatusBar() string {
 			modeIndicator = "[Detail]"
 		case BottomPaneSplit:
 			modeIndicator = "[Split]"
+		case BottomPaneUpdates:
+			modeIndicator = "[Updates]"
 		}
 	}
 
