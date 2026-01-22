@@ -199,23 +199,43 @@ func offerCommitAfterRun(projectDir string, store *session.Store, ballID string,
 		}
 	}
 
-	// Show commit message and prompt
-	fmt.Println()
-	fmt.Println("─────────────────────────────────────────────────────")
-	fmt.Println("Proposed commit message:")
-	fmt.Printf("  %s\n", commitMsg)
-	fmt.Println("─────────────────────────────────────────────────────")
+	// Show commit message and prompt with edit option
+	for {
+		fmt.Println()
+		fmt.Println("─────────────────────────────────────────────────────")
+		fmt.Println("Proposed commit message:")
+		fmt.Printf("  %s\n", commitMsg)
+		fmt.Println("─────────────────────────────────────────────────────")
 
-	confirmed, err := ConfirmSingleKey("Commit changes?")
-	if err != nil {
-		// User cancelled or terminal error - skip commit
-		fmt.Printf("Skipping commit: %v\n", err)
-		return nil
-	}
+		choice, err := ConfirmOrEditSingleKey("Commit changes?")
+		if err != nil {
+			// User cancelled or terminal error - skip commit
+			fmt.Printf("Skipping commit: %v\n", err)
+			return nil
+		}
 
-	if !confirmed {
-		fmt.Println("Skipping commit.")
-		return nil
+		switch choice {
+		case CommitChoiceNo:
+			fmt.Println("Skipping commit.")
+			return nil
+		case CommitChoiceEdit:
+			// Open editor to edit commit message
+			edited, err := EditTextInEditor(commitMsg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Editor error: %v\n", err)
+				continue
+			}
+			commitMsg = strings.TrimSpace(edited)
+			if commitMsg == "" {
+				fmt.Println("Empty commit message. Please try again.")
+				continue
+			}
+			// Loop back to show the new message and prompt again
+			continue
+		case CommitChoiceYes:
+			// Fall through to commit
+		}
+		break
 	}
 
 	// Perform the commit
