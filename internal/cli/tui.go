@@ -149,8 +149,26 @@ func runTUI(cmd *cobra.Command, args []string) error {
 
 // offerCommitAfterRun prompts the user to commit changes after an agent run.
 // It uses the agent's commit message if available, otherwise falls back to "feat: <ballID>: <title>".
+// If the agent reports completion, it marks the ball complete and informs the user.
 func offerCommitAfterRun(projectDir string, store *session.Store, ballID string, result *AgentResult) error {
 	const maxTitleLength = 50
+
+	// Get the ball for title/context and potential completion
+	ball, err := store.GetBallByID(ballID)
+	if err != nil {
+		// Can't get ball - still try to offer commit but skip completion
+		fmt.Fprintf(os.Stderr, "Warning: could not load ball %s: %v\n", ballID, err)
+	}
+
+	// Mark ball as complete if the agent reports completion
+	if result != nil && result.Complete && ball != nil {
+		ball.MarkComplete("Completed via Run Now")
+		if err := store.UpdateBall(ball); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to update ball: %v\n", err)
+		} else {
+			fmt.Printf("✅ Ball %s marked complete\n", ballID)
+		}
+	}
 
 	// Construct commit message
 	var commitMsg string
@@ -160,8 +178,7 @@ func offerCommitAfterRun(projectDir string, store *session.Store, ballID string,
 		commitMsg = strings.TrimSpace(result.CommitMessage)
 	} else {
 		// Fall back to "feat: <ballID>: <title>"
-		ball, err := store.GetBallByID(ballID)
-		if err != nil {
+		if ball == nil {
 			// Can't get ball title, use just the ball ID
 			commitMsg = fmt.Sprintf("feat: %s", ballID)
 		} else {
