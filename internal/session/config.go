@@ -67,6 +67,10 @@ type Config struct {
 	AgentProvider  string            `json:"agent_provider,omitempty"`  // Agent CLI: "claude" or "opencode"
 	ModelOverrides map[string]string `json:"model_overrides,omitempty"` // Custom model mappings (e.g., "opus": "anthropic/claude-opus-5")
 
+	// Stream-JSON settings
+	StreamJSONEnabled bool `json:"stream_json_enabled,omitempty"` // Enable stream-json output format
+	ShowThinking      bool `json:"show_thinking,omitempty"`       // Show thinking blocks in output
+
 	// UnknownFields stores any fields from the config file that aren't recognized.
 	// These are preserved when saving to avoid data loss.
 	UnknownFields map[string]interface{} `json:"-"`
@@ -81,6 +85,8 @@ var knownConfigFields = map[string]bool{
 	"vcs":                     true,
 	"agent_provider":          true,
 	"model_overrides":         true,
+	"stream_json_enabled":     true,
+	"show_thinking":           true,
 }
 
 // UnmarshalJSON implements custom JSON unmarshaling to capture unknown fields
@@ -106,6 +112,8 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.VCS = alias.VCS
 	c.AgentProvider = alias.AgentProvider
 	c.ModelOverrides = alias.ModelOverrides
+	c.StreamJSONEnabled = alias.StreamJSONEnabled
+	c.ShowThinking = alias.ShowThinking
 
 	// Extract unknown fields
 	c.UnknownFields = make(map[string]interface{})
@@ -145,6 +153,12 @@ func (c *Config) MarshalJSON() ([]byte, error) {
 	}
 	if len(c.ModelOverrides) > 0 {
 		result["model_overrides"] = c.ModelOverrides
+	}
+	if c.StreamJSONEnabled {
+		result["stream_json_enabled"] = c.StreamJSONEnabled
+	}
+	if c.ShowThinking {
+		result["show_thinking"] = c.ShowThinking
 	}
 
 	return json.Marshal(result)
@@ -346,6 +360,8 @@ func EnsureProjectInSearchPaths(projectDir string) error {
 //   - AgentProvider: project-specific agent CLI (overrides global)
 //   - ModelOverrides: project-specific model mappings (merged with global)
 //   - RunAliases: named command aliases for `juggle worktree run`
+//   - StreamJSONEnabled: enable stream-json output format (overrides global)
+//   - ShowThinking: show thinking blocks in output (overrides global)
 //
 // These settings apply to all balls and sessions within the project.
 type ProjectConfig struct {
@@ -355,6 +371,8 @@ type ProjectConfig struct {
 	AgentProvider             string            `json:"agent_provider,omitempty"`              // Agent CLI: "claude" or "opencode"
 	ModelOverrides            map[string]string `json:"model_overrides,omitempty"`             // Custom model mappings
 	RunAliases                map[string]string `json:"run_aliases,omitempty"`                 // Named command aliases for worktree run
+	StreamJSONEnabled         bool              `json:"stream_json_enabled,omitempty"`         // Enable stream-json output format
+	ShowThinking              bool              `json:"show_thinking,omitempty"`               // Show thinking blocks in output
 }
 
 // DefaultProjectConfig returns a new project config with initial values

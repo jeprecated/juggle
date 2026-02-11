@@ -57,6 +57,8 @@ type RunOptions struct {
 	SystemPrompt string         // optional additional system prompt
 	Model        string         // canonical model name (e.g., "opus", "sonnet", "haiku")
 	WorkingDir   string         // working directory for command execution
+	StreamJSON   bool           // Enable stream-json output format
+	ShowThinking bool           // Include thinking blocks in output
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)
@@ -73,6 +75,12 @@ type RunResult struct {
 	RetryAfter        time.Duration // Suggested wait time from rate limit (0 if not specified)
 	OverloadExhausted bool          // Agent exited after exhausting overload retries
 	Error             error         // Execution error (if any)
+
+	// Stream-JSON metrics (populated when StreamJSON=true)
+	InputTokens    int      // Input tokens consumed
+	OutputTokens   int      // Output tokens generated
+	CacheTokens    int      // Cached tokens used
+	ThinkingBlocks []string // Thinking blocks (if ShowThinking=true)
 }
 
 // Provider defines the interface for AI agent backends
