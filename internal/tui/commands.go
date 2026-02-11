@@ -3,6 +3,7 @@ package tui
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -182,6 +183,16 @@ type agentOutputMsg struct {
 	isError bool // true if this is stderr output
 }
 
+// agentStreamJSONMsg carries parsed stream-JSON events for real-time metric updates
+type agentStreamJSONMsg struct {
+	eventType    string // message_start, content_block_start, content_block_delta, etc.
+	inputTokens  int    // Cumulative input tokens
+	outputTokens int    // Cumulative output tokens
+	cacheTokens  int    // Cumulative cache tokens
+	activeTool   string // Current tool name (or empty)
+	thinking     bool   // True if thinking block is active
+}
+
 // agentCancelledMsg is sent when the agent is cancelled by user
 type agentCancelledMsg struct {
 	sessionID string
@@ -208,6 +219,14 @@ type AgentStatus struct {
 	Status           string // Status message when stopped (e.g., "No workable balls", "Complete")
 	Phase            string // Current agent phase (starting, working, blocked, testing, complete)
 	PhaseMessage     string // Message describing current phase activity
+
+	// Real-time stream-JSON metrics
+	StreamJSONActive bool   // True if stream-json is enabled and being parsed
+	LiveInputTokens  int    // Real-time input token count
+	LiveOutputTokens int    // Real-time output token count
+	LiveCacheTokens  int    // Real-time cache token count
+	ActiveTool       string // Currently executing tool (e.g., "Read", "Edit")
+	ThinkingActive   bool   // True when thinking block is active
 }
 
 // DaemonInfo stores information about a running daemon for a session
@@ -224,7 +243,7 @@ type AgentProcess struct {
 	cmd        *exec.Cmd
 	stdout     io.ReadCloser
 	stderr     io.ReadCloser
-	outputCh   chan<- agentOutputMsg
+	outputCh   chan<- tea.Msg
 	sessionID  string
 	cancelled  atomic.Bool // Thread-safe cancellation flag
 	cancel     context.CancelFunc
@@ -329,7 +348,7 @@ func launchAgentCmd(sessionID string) tea.Cmd {
 
 // launchAgentWithOutputCmd creates a command that runs the agent and streams output
 // It returns the process reference via agentProcessStartedMsg for cancellation support
-func launchAgentWithOutputCmd(sessionID string, outputCh chan<- agentOutputMsg) tea.Cmd {
+func launchAgentWithOutputCmd(sessionID string, outputCh chan<- tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		cmd := exec.Command("juggle", "agent", "run", sessionID)
 
@@ -367,14 +386,57 @@ func launchAgentWithOutputCmd(sessionID string, outputCh chan<- agentOutputMsg) 
 		go func() {
 			defer process.wg.Done()
 			scanner := bufio.NewScanner(stdout)
+
+			var sseMode bool
+			var eventType string
+			var dataLines []string
+
 			for scanner.Scan() {
 				select {
 				case <-ctx.Done():
 					return
 				default:
-					// Non-blocking send to prevent blocking on cancelled processes
+				}
+
+				line := scanner.Text()
+
+				// Detect SSE format
+				if strings.HasPrefix(line, "event:") {
+					sseMode = true
+					eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+					dataLines = nil
+					continue
+				}
+
+				if sseMode && strings.HasPrefix(line, "data:") {
+					data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+					dataLines = append(dataLines, data)
+					continue
+				}
+
+				if sseMode && line == "" {
+					// End of SSE event - parse it
+					if len(dataLines) > 0 {
+						jsonData := strings.Join(dataLines, "\n")
+						msg := parseStreamJSONEvent(eventType, jsonData)
+						if msg != nil {
+							select {
+							case outputCh <- msg:
+							case <-ctx.Done():
+								return
+							}
+						}
+					}
+					sseMode = false
+					eventType = ""
+					dataLines = nil
+					continue
+				}
+
+				if !sseMode {
+					// Plain text output
 					select {
-					case outputCh <- agentOutputMsg{line: scanner.Text(), isError: false}:
+					case outputCh <- agentOutputMsg{line: line, isError: false}:
 					case <-ctx.Done():
 						return
 					}
@@ -433,7 +495,7 @@ func waitForAgentCmd(process *AgentProcess) tea.Cmd {
 }
 
 // listenForAgentOutput returns a command that waits for an output message on the channel
-func listenForAgentOutput(outputCh <-chan agentOutputMsg) tea.Cmd {
+func listenForAgentOutput(outputCh <-chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
 		if outputCh == nil {
 			return nil
@@ -880,4 +942,81 @@ func loadUpdatesHistoryCmd(sessionStore *session.SessionStore, sessionID string)
 		}
 		return updatesHistoryLoadedMsg{updates: updates}
 	}
+}
+
+// parseStreamJSONEvent parses a stream-JSON SSE event and returns appropriate message
+func parseStreamJSONEvent(eventType, jsonData string) tea.Msg {
+	switch eventType {
+	case "message_start":
+		var data struct {
+			Message struct {
+				Usage struct {
+					InputTokens  int `json:"input_tokens"`
+					OutputTokens int `json:"output_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(jsonData), &data); err == nil {
+			return agentStreamJSONMsg{
+				eventType:    "message_start",
+				inputTokens:  data.Message.Usage.InputTokens,
+				outputTokens: data.Message.Usage.OutputTokens,
+			}
+		}
+
+	case "content_block_start":
+		var data struct {
+			Index        int `json:"index"`
+			ContentBlock struct {
+				Type string `json:"type"` // "text", "tool_use", "thinking"
+				Name string `json:"name,omitempty"`
+			} `json:"content_block"`
+		}
+		if err := json.Unmarshal([]byte(jsonData), &data); err == nil {
+			msg := agentStreamJSONMsg{eventType: "content_block_start"}
+			if data.ContentBlock.Type == "tool_use" {
+				msg.activeTool = data.ContentBlock.Name
+			} else if data.ContentBlock.Type == "thinking" {
+				msg.thinking = true
+			}
+			return msg
+		}
+
+	case "content_block_delta":
+		var data struct {
+			Index int `json:"index"`
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text,omitempty"`
+			} `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(jsonData), &data); err == nil {
+			if data.Delta.Type == "text_delta" && data.Delta.Text != "" {
+				// Send text output for display
+				return agentOutputMsg{line: data.Delta.Text, isError: false}
+			}
+		}
+
+	case "content_block_stop":
+		return agentStreamJSONMsg{
+			eventType:  "content_block_stop",
+			activeTool: "", // Clear active tool
+			thinking:   false,
+		}
+
+	case "message_delta":
+		var data struct {
+			Usage struct {
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(jsonData), &data); err == nil {
+			return agentStreamJSONMsg{
+				eventType:    "message_delta",
+				outputTokens: data.Usage.OutputTokens,
+			}
+		}
+	}
+
+	return nil
 }

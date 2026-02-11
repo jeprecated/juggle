@@ -383,6 +383,34 @@ func (m Model) renderMonitorMetricsPanel() string {
 			monitorMetricValueStyle.Render(tokensInfo)))
 	}
 
+	// Row 7: Live Stream-JSON Metrics (if active)
+	if m.agentStatus.StreamJSONActive {
+		liveTokensInfo := fmt.Sprintf("%s in, %s out",
+			formatTokenCount(m.agentStatus.LiveInputTokens),
+			formatTokenCount(m.agentStatus.LiveOutputTokens))
+		if m.agentStatus.LiveCacheTokens > 0 {
+			liveTokensInfo += fmt.Sprintf(", %s cached", formatTokenCount(m.agentStatus.LiveCacheTokens))
+		}
+
+		b.WriteString(fmt.Sprintf("  %s %s\n",
+			monitorMetricLabelStyle.Render("Live Tokens:"),
+			monitorMetricValueStyle.Render(liveTokensInfo)))
+
+		// Active tool indicator
+		if m.agentStatus.ActiveTool != "" {
+			toolIndicator := fmt.Sprintf("🔧 %s", m.agentStatus.ActiveTool)
+			b.WriteString(fmt.Sprintf("  %s %s\n",
+				monitorMetricLabelStyle.Render("Active Tool:"),
+				monitorMetricValueStyle.Render(toolIndicator)))
+		}
+
+		// Thinking indicator
+		if m.agentStatus.ThinkingActive {
+			b.WriteString(fmt.Sprintf("  %s\n",
+				monitorMetricValueStyle.Render("🤔 Thinking...")))
+		}
+	}
+
 	return b.String()
 }
 

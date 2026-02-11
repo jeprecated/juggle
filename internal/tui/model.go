@@ -220,7 +220,7 @@ type Model struct {
 	agentOutputExpanded bool               // Whether agent output panel is expanded (half screen)
 	agentOutput         []AgentOutputEntry // Buffer of agent output lines
 	agentOutputOffset   int                // Scroll offset for agent output panel
-	agentOutputCh       chan agentOutputMsg // Channel for receiving agent output
+	agentOutputCh       chan tea.Msg       // Channel for receiving agent output and stream-JSON events
 
 	// Agent process tracking for cancellation
 	agentProcess *AgentProcess // Reference to running agent process for cancellation

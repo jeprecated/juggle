@@ -337,6 +337,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case agentStreamJSONMsg:
+		// Update real-time stream-JSON metrics
+		m.agentStatus.StreamJSONActive = true
+
+		switch msg.eventType {
+		case "message_start":
+			m.agentStatus.LiveInputTokens = msg.inputTokens
+			m.agentStatus.LiveOutputTokens = msg.outputTokens
+
+		case "content_block_start":
+			if msg.activeTool != "" {
+				m.agentStatus.ActiveTool = msg.activeTool
+			}
+			if msg.thinking {
+				m.agentStatus.ThinkingActive = true
+			}
+
+		case "content_block_stop":
+			m.agentStatus.ActiveTool = ""
+			m.agentStatus.ThinkingActive = false
+
+		case "message_delta":
+			m.agentStatus.LiveOutputTokens = msg.outputTokens
+		}
+
+		// Continue listening for more output if agent is still running
+		if m.agentStatus.Running && m.agentOutputCh != nil {
+			return m, listenForAgentOutput(m.agentOutputCh)
+		}
+		return m, nil
+
 	case historyLoadedMsg:
 		if msg.err != nil {
 			m.message = "Error loading history: " + msg.err.Error()

@@ -5698,7 +5698,7 @@ func TestAgentProcessStartedMsgHandler(t *testing.T) {
 	model := Model{
 		mode:          splitView,
 		activePanel:   SessionsPanel,
-		agentOutputCh: make(chan agentOutputMsg, 10),
+		agentOutputCh: make(chan tea.Msg, 10),
 	}
 
 	mockProcess := &AgentProcess{
@@ -6521,7 +6521,7 @@ func TestAgentProcessWaitNilCases(t *testing.T) {
 
 // Test channel close behavior in listenForAgentOutput
 func TestListenForAgentOutputClosedChannel(t *testing.T) {
-	ch := make(chan agentOutputMsg, 1)
+	ch := make(chan tea.Msg, 1)
 	close(ch)
 
 	cmd := listenForAgentOutput(ch)
@@ -6546,7 +6546,7 @@ func TestListenForAgentOutputNilChannel(t *testing.T) {
 
 // Test channel message receive
 func TestListenForAgentOutputReceivesMessage(t *testing.T) {
-	ch := make(chan agentOutputMsg, 1)
+	ch := make(chan tea.Msg, 1)
 	testMsg := agentOutputMsg{line: "test line", isError: false}
 	ch <- testMsg
 
@@ -6566,7 +6566,7 @@ func TestListenForAgentOutputReceivesMessage(t *testing.T) {
 
 // Test agentFinishedMsg closes and nils output channel
 func TestAgentFinishedMsgClosesChannel(t *testing.T) {
-	ch := make(chan agentOutputMsg, 1)
+	ch := make(chan tea.Msg, 1)
 	model := Model{
 		mode:          splitView,
 		activePanel:   BallsPanel,
@@ -6584,7 +6584,7 @@ func TestAgentFinishedMsgClosesChannel(t *testing.T) {
 
 // Test agentCancelledMsg closes and nils output channel
 func TestAgentCancelledMsgClosesChannel(t *testing.T) {
-	ch := make(chan agentOutputMsg, 1)
+	ch := make(chan tea.Msg, 1)
 	model := Model{
 		mode:          splitView,
 		activePanel:   BallsPanel,
