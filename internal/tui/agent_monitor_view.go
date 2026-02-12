@@ -353,62 +353,30 @@ func (m Model) renderMonitorMetricsPanel() string {
 			monitorMetricValueStyle.Render(phaseMessage)))
 	}
 
-	// Row 6: Hook metrics (if available)
-	if m.agentMetrics != nil && m.agentMetrics.TotalTools > 0 {
-		// Format tools info
-		toolsInfo := fmt.Sprintf("%d", m.agentMetrics.TotalTools)
-		if m.agentMetrics.ToolFailures > 0 {
-			toolsInfo += fmt.Sprintf(" (%d failed)", m.agentMetrics.ToolFailures)
-		}
-
-		// Format files info
-		filesInfo := fmt.Sprintf("%d", len(m.agentMetrics.FilesChanged))
-
-		// Format tokens info
-		tokensInfo := "—"
-		totalTokens := m.agentMetrics.InputTokens + m.agentMetrics.OutputTokens
-		if totalTokens > 0 {
-			tokensInfo = formatTokenCount(totalTokens)
-			if m.agentMetrics.CacheReadTokens > 0 {
-				tokensInfo += fmt.Sprintf(" (cache: %s)", formatTokenCount(m.agentMetrics.CacheReadTokens))
-			}
-		}
-
-		b.WriteString(fmt.Sprintf("  %s %s    %s %s    %s %s\n",
-			monitorMetricLabelStyle.Render("Tools:"),
-			monitorMetricValueStyle.Render(toolsInfo),
-			monitorMetricLabelStyle.Render("Files:"),
-			monitorMetricValueStyle.Render(filesInfo),
-			monitorMetricLabelStyle.Render("Tokens:"),
-			monitorMetricValueStyle.Render(tokensInfo)))
+	// Row 6: Live Metrics
+	tokensInfo := fmt.Sprintf("%s in, %s out",
+		formatTokenCount(m.agentStatus.LiveInputTokens),
+		formatTokenCount(m.agentStatus.LiveOutputTokens))
+	if m.agentStatus.LiveCacheTokens > 0 {
+		tokensInfo += fmt.Sprintf(", %s cached", formatTokenCount(m.agentStatus.LiveCacheTokens))
 	}
 
-	// Row 7: Live Stream-JSON Metrics (if active)
-	if m.agentStatus.StreamJSONActive {
-		liveTokensInfo := fmt.Sprintf("%s in, %s out",
-			formatTokenCount(m.agentStatus.LiveInputTokens),
-			formatTokenCount(m.agentStatus.LiveOutputTokens))
-		if m.agentStatus.LiveCacheTokens > 0 {
-			liveTokensInfo += fmt.Sprintf(", %s cached", formatTokenCount(m.agentStatus.LiveCacheTokens))
-		}
+	b.WriteString(fmt.Sprintf("  %s %s\n",
+		monitorMetricLabelStyle.Render("Tokens:"),
+		monitorMetricValueStyle.Render(tokensInfo)))
 
+	// Active tool indicator
+	if m.agentStatus.ActiveTool != "" {
+		toolIndicator := fmt.Sprintf("🔧 %s", m.agentStatus.ActiveTool)
 		b.WriteString(fmt.Sprintf("  %s %s\n",
-			monitorMetricLabelStyle.Render("Live Tokens:"),
-			monitorMetricValueStyle.Render(liveTokensInfo)))
+			monitorMetricLabelStyle.Render("Active Tool:"),
+			monitorMetricValueStyle.Render(toolIndicator)))
+	}
 
-		// Active tool indicator
-		if m.agentStatus.ActiveTool != "" {
-			toolIndicator := fmt.Sprintf("🔧 %s", m.agentStatus.ActiveTool)
-			b.WriteString(fmt.Sprintf("  %s %s\n",
-				monitorMetricLabelStyle.Render("Active Tool:"),
-				monitorMetricValueStyle.Render(toolIndicator)))
-		}
-
-		// Thinking indicator
-		if m.agentStatus.ThinkingActive {
-			b.WriteString(fmt.Sprintf("  %s\n",
-				monitorMetricValueStyle.Render("🤔 Thinking...")))
-		}
+	// Thinking indicator
+	if m.agentStatus.ThinkingActive {
+		b.WriteString(fmt.Sprintf("  %s\n",
+			monitorMetricValueStyle.Render("🤔 Thinking...")))
 	}
 
 	return b.String()

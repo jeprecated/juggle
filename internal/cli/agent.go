@@ -53,7 +53,6 @@ var (
 	agentDaemon         bool   // Run in daemon mode (persists after TUI exits)
 	agentMonitor        bool   // Open monitor TUI (connects to running daemon)
 	agentSkipHooksCheck bool   // Skip Claude hooks check
-	agentStreamJSON     string // Enable stream-json output format ("", "true", "false")
 	agentShowThinking   string // Show thinking blocks ("", "true", "false")
 
 	// Refine command flags
@@ -240,8 +239,7 @@ func init() {
 	agentRunCmd.Flags().BoolVar(&agentDaemon, "daemon", false, "Run agent as background daemon (persists when TUI exits)")
 	agentRunCmd.Flags().BoolVar(&agentMonitor, "monitor", false, "Open monitor TUI (connects to running daemon if exists)")
 	agentRunCmd.Flags().BoolVar(&agentSkipHooksCheck, "skip-hooks-check", false, "Skip Claude hooks installation check")
-	agentRunCmd.Flags().StringVar(&agentStreamJSON, "stream-json", "", "Enable stream-json output format (true/false, default: from config)")
-	agentRunCmd.Flags().StringVar(&agentShowThinking, "show-thinking", "", "Show thinking blocks in output (true/false, default: from config)")
+	agentRunCmd.Flags().StringVar(&agentShowThinking, "show-thinking", "", "Show thinking blocks in output (true/false, default: false)")
 
 	// Refine command flags
 	agentRefineCmd.Flags().StringVar(&refineProvider, "provider", "", "Agent provider to use (claude, opencode). Default: from config or claude")
@@ -333,11 +331,10 @@ type AgentLoopConfig struct {
 	Model                string        // Model to use (opus, sonnet, haiku). Empty = auto-select based on ball model_size
 	OverloadRetryMinutes int           // Minutes to wait before retrying after 529 overload exhaustion (-1 = use config default, 0 = no wait)
 	Provider             string        // Agent provider to use (claude, opencode). Empty = from config or claude
-	IgnoreLock           bool          // Skip lock acquisition (use with caution)
-	Message              string        // User message to append to the agent prompt
-	DaemonMode           bool          // Run in daemon mode with file-based state and control
-	StreamJSON           bool          // Enable stream-json output format
-	ShowThinking         bool          // Show thinking blocks in output
+	IgnoreLock   bool   // Skip lock acquisition (use with caution)
+	Message      string // User message to append to the agent prompt
+	DaemonMode   bool   // Run in daemon mode with file-based state and control
+	ShowThinking bool   // Show thinking blocks in output
 }
 
 // sessionStorageID returns the session ID used for storage (progress, output, lock)
@@ -693,7 +690,6 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 			Permission:   agent.PermissionAcceptEdits,
 			Timeout:      config.Timeout,
 			Model:        modelSelection.Model,
-			StreamJSON:   config.StreamJSON,
 			ShowThinking: config.ShowThinking,
 		}
 		if config.Interactive {
@@ -1929,42 +1925,8 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Load stream-JSON settings (flags override project config, which overrides global config)
-	var streamJSON, showThinking bool
-
-	// Load global config
-	globalCfg, err := session.LoadConfigWithOptions(GetConfigOptions())
-	if err != nil {
-		// Non-fatal, use defaults
-		streamJSON = false
-		showThinking = false
-	} else {
-		streamJSON = globalCfg.StreamJSONEnabled
-		showThinking = globalCfg.ShowThinking
-	}
-
-	// Load project config (overrides global)
-	projectCfg, err := session.LoadProjectConfig(projectDir)
-	if err == nil {
-		if projectCfg.StreamJSONEnabled {
-			streamJSON = true
-		}
-		if projectCfg.ShowThinking {
-			showThinking = true
-		}
-	}
-
-	// Apply CLI flags (override config)
-	if cmd.Flags().Changed("stream-json") {
-		switch strings.ToLower(agentStreamJSON) {
-		case "true", "1", "yes":
-			streamJSON = true
-		case "false", "0", "no":
-			streamJSON = false
-		default:
-			fmt.Printf("Warning: invalid --stream-json value %q, using config default\n", agentStreamJSON)
-		}
-	}
+	// ShowThinking defaults to false, can be enabled via CLI flag
+	showThinking := false
 	if cmd.Flags().Changed("show-thinking") {
 		switch strings.ToLower(agentShowThinking) {
 		case "true", "1", "yes":
@@ -1972,7 +1934,7 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		case "false", "0", "no":
 			showThinking = false
 		default:
-			fmt.Printf("Warning: invalid --show-thinking value %q, using config default\n", agentShowThinking)
+			fmt.Printf("Warning: invalid --show-thinking value %q, using default (false)\n", agentShowThinking)
 		}
 	}
 
@@ -1991,11 +1953,10 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 		Model:                agentModel,
 		OverloadRetryMinutes: -1,              // Use config default
 		Provider:             agentProvider,   // Use CLI flag (empty = auto-detect from config)
-		IgnoreLock:           agentIgnoreLock, // Skip lock acquisition if set
-		Message:              message,         // User message to append to prompt
-		DaemonMode:           agentDaemon,     // Run as daemon with file-based state/control
-		StreamJSON:           streamJSON,      // Enable stream-json output format
-		ShowThinking:         showThinking,    // Show thinking blocks in output
+		IgnoreLock:   agentIgnoreLock, // Skip lock acquisition if set
+		Message:      message,         // User message to append to prompt
+		DaemonMode:   agentDaemon,     // Run as daemon with file-based state/control
+		ShowThinking: showThinking,    // Show thinking blocks in output
 	}
 
 	result, err := RunAgentLoop(loopConfig)

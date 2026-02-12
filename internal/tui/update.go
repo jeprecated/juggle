@@ -339,8 +339,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agentStreamJSONMsg:
 		// Update real-time stream-JSON metrics
-		m.agentStatus.StreamJSONActive = true
-
 		switch msg.eventType {
 		case "message_start":
 			m.agentStatus.LiveInputTokens = msg.inputTokens

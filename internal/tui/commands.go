@@ -218,10 +218,9 @@ type AgentStatus struct {
 	Provider         string
 	Status           string // Status message when stopped (e.g., "No workable balls", "Complete")
 	Phase            string // Current agent phase (starting, working, blocked, testing, complete)
-	PhaseMessage     string // Message describing current phase activity
+	PhaseMessage string // Message describing current phase activity
 
 	// Real-time stream-JSON metrics
-	StreamJSONActive bool   // True if stream-json is enabled and being parsed
 	LiveInputTokens  int    // Real-time input token count
 	LiveOutputTokens int    // Real-time output token count
 	LiveCacheTokens  int    // Real-time cache token count

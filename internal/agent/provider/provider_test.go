@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -403,5 +404,206 @@ func TestOpenCodeProvider_ParseRateLimitWithRetryAfter(t *testing.T) {
 	}
 	if result.RetryAfter != 30*time.Second {
 		t.Errorf("expected RetryAfter=30s, got %v", result.RetryAfter)
+	}
+}
+
+func TestBinaryName(t *testing.T) {
+	tests := []struct {
+		providerType Type
+		want         string
+	}{
+		{TypeClaude, "claude"},
+		{TypeOpenCode, "opencode"},
+		{Type("invalid"), ""},
+		{Type(""), ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.providerType), func(t *testing.T) {
+			got := BinaryName(tc.providerType)
+			if got != tc.want {
+				t.Errorf("BinaryName(%q) = %q, want %q", tc.providerType, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestGetWithDetection(t *testing.T) {
+	tests := []struct {
+		name            string
+		cliOverride     string
+		projectProvider string
+		globalProvider  string
+		wantType        Type
+	}{
+		{"all empty defaults to claude", "", "", "", TypeClaude},
+		{"cli override wins", "opencode", "claude", "claude", TypeOpenCode},
+		{"project wins over global", "", "opencode", "claude", TypeOpenCode},
+		{"global used when no project", "", "", "opencode", TypeOpenCode},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := GetWithDetection(tc.cliOverride, tc.projectProvider, tc.globalProvider)
+			if p.Type() != tc.wantType {
+				t.Errorf("GetWithDetection() provider type = %v, want %v", p.Type(), tc.wantType)
+			}
+		})
+	}
+}
+
+func TestClaudeProvider_Type(t *testing.T) {
+	p := NewClaudeProvider()
+	if p.Type() != TypeClaude {
+		t.Errorf("ClaudeProvider.Type() = %v, want %v", p.Type(), TypeClaude)
+	}
+}
+
+func TestOpenCodeProvider_Type(t *testing.T) {
+	p := NewOpenCodeProvider()
+	if p.Type() != TypeOpenCode {
+		t.Errorf("OpenCodeProvider.Type() = %v, want %v", p.Type(), TypeOpenCode)
+	}
+}
+
+func TestParseRateLimit_ClaudeProvider(t *testing.T) {
+	tests := []struct {
+		name        string
+		output      string
+		wantLimited bool
+	}{
+		{"rate limit phrase", "Error: rate limit exceeded", true},
+		{"rate_limit underscore", "Error: rate_limit_error", true},
+		{"429 status code", "HTTP 429 Too Many Requests", true},
+		{"overloaded", "API is overloaded", true},
+		{"capacity", "Not enough capacity", true},
+		{"try again", "Please try again later", true},
+		{"throttled", "Request was throttled", true},
+		{"normal output", "Task completed successfully", false},
+		{"empty output", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &RunResult{Output: tc.output}
+			parseRateLimit(result)
+
+			if result.RateLimited != tc.wantLimited {
+				t.Errorf("parseRateLimit(%q) RateLimited = %v, want %v",
+					tc.output, result.RateLimited, tc.wantLimited)
+			}
+		})
+	}
+}
+
+func TestParseOverloadExhausted(t *testing.T) {
+	tests := []struct {
+		name              string
+		output            string
+		exitCode          int
+		hasError          bool
+		wantExhausted     bool
+	}{
+		{"529 with error", "Error: 529 overloaded_error", 1, true, true},
+		{"overloaded_error", "overloaded_error occurred", 1, true, true},
+		{"api is overloaded", "api is overloaded, retries exhausted", 1, true, true},
+		{"no error exit code 0", "529 overloaded_error", 0, false, false},
+		{"normal exit with overloaded", "Server overloaded", 1, false, true},
+		{"normal output", "Task completed", 0, false, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &RunResult{
+				Output:   tc.output,
+				ExitCode: tc.exitCode,
+			}
+			if tc.hasError {
+				result.Error = fmt.Errorf("some error")
+			}
+
+			parseOverloadExhausted(result)
+
+			if result.OverloadExhausted != tc.wantExhausted {
+				t.Errorf("parseOverloadExhausted() OverloadExhausted = %v, want %v",
+					result.OverloadExhausted, tc.wantExhausted)
+			}
+		})
+	}
+}
+
+func TestOpenCodeProvider_ParseOverloadExhausted(t *testing.T) {
+	p := NewOpenCodeProvider()
+
+	tests := []struct {
+		name          string
+		output        string
+		exitCode      int
+		hasError      bool
+		wantExhausted bool
+	}{
+		{"529 with error", "Error: 529", 1, true, true},
+		{"quota exceeded", "quota exceeded for account", 1, true, true},
+		{"overloaded with error", "server overloaded", 1, true, true},
+		{"no error", "529", 0, false, false},
+		{"normal output", "Task completed", 0, false, false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := &RunResult{
+				Output:   tc.output,
+				ExitCode: tc.exitCode,
+			}
+			if tc.hasError {
+				result.Error = fmt.Errorf("some error")
+			}
+
+			p.parseOverloadExhausted(result)
+
+			if result.OverloadExhausted != tc.wantExhausted {
+				t.Errorf("parseOverloadExhausted() OverloadExhausted = %v, want %v",
+					result.OverloadExhausted, tc.wantExhausted)
+			}
+		})
+	}
+}
+
+func TestParseRateLimitWithError(t *testing.T) {
+	result := &RunResult{
+		Output: "Normal output",
+		Error:  fmt.Errorf("rate limit exceeded"),
+	}
+
+	parseRateLimit(result)
+
+	if !result.RateLimited {
+		t.Error("parseRateLimit should detect rate limit in error message")
+	}
+}
+
+func TestClaudeProvider_MapPermission_Default(t *testing.T) {
+	p := NewClaudeProvider()
+
+	// Test default case (unknown permission mode)
+	flag, value := p.MapPermission(PermissionMode("unknown"))
+	if flag != "--permission-mode" {
+		t.Errorf("flag = %q, want '--permission-mode'", flag)
+	}
+	if value != "acceptEdits" {
+		t.Errorf("value = %q, want 'acceptEdits'", value)
+	}
+}
+
+func TestOpenCodeProvider_MapPermission_Default(t *testing.T) {
+	p := NewOpenCodeProvider()
+
+	// Test default case (unknown permission mode)
+	flag, value := p.MapPermission(PermissionMode("unknown"))
+	if flag != "--agent" {
+		t.Errorf("flag = %q, want '--agent'", flag)
+	}
+	if value != "build" {
+		t.Errorf("value = %q, want 'build'", value)
 	}
 }

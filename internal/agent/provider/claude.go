@@ -89,10 +89,8 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		args = append(args, flag)
 	}
 
-	// Enable stream-json output format if requested
-	if opts.StreamJSON {
-		args = append(args, "--output-format", "stream-json")
-	}
+	// Always use stream-json output format (requires --verbose with -p stdin mode)
+	args = append(args, "--output-format", "stream-json", "--verbose")
 
 	// Headless mode: read prompt from stdin
 	args = append(args, "-p", "-")
@@ -143,29 +141,16 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 
 	// Stream output to console and capture
 	var wg sync.WaitGroup
-	var accumulator *StreamAccumulator
-	if opts.StreamJSON {
-		accumulator = NewStreamAccumulator()
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			streamJSONOutput(stdout, &outputBuf, os.Stdout, accumulator, opts.ShowThinking)
-		}()
-		go func() {
-			defer wg.Done()
-			streamOutput(stderr, &outputBuf, os.Stderr)
-		}()
-	} else {
-		wg.Add(2)
-		go func() {
-			defer wg.Done()
-			streamOutput(stdout, &outputBuf, os.Stdout)
-		}()
-		go func() {
-			defer wg.Done()
-			streamOutput(stderr, &outputBuf, os.Stderr)
-		}()
-	}
+	accumulator := NewStreamAccumulator()
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		streamJSONOutput(stdout, &outputBuf, os.Stdout, accumulator, opts.ShowThinking)
+	}()
+	go func() {
+		defer wg.Done()
+		streamOutput(stderr, &outputBuf, os.Stderr)
+	}()
 
 	// Wait for command to complete
 	err = cmd.Wait()
@@ -173,13 +158,11 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	wg.Wait()
 	result.Output = outputBuf.String()
 
-	// Populate stream-JSON metrics if available
-	if accumulator != nil {
-		result.InputTokens = accumulator.InputTokens
-		result.OutputTokens = accumulator.OutputTokens
-		result.CacheTokens = accumulator.CacheTokens
-		result.ThinkingBlocks = accumulator.ThinkingBlocks
-	}
+	// Populate stream-JSON metrics
+	result.InputTokens = accumulator.InputTokens
+	result.OutputTokens = accumulator.OutputTokens
+	result.CacheTokens = accumulator.CacheTokens
+	result.ThinkingBlocks = accumulator.ThinkingBlocks
 
 	if err != nil {
 		// Check if this was a timeout

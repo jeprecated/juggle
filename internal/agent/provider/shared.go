@@ -2,7 +2,6 @@ package provider
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -31,10 +30,10 @@ func streamOutput(reader io.Reader, buf *strings.Builder, writer io.Writer) {
 	}
 }
 
-// streamJSONOutput parses SSE stream-json format, accumulates metrics, and outputs text.
+// streamJSONOutput parses JSON Lines format, accumulates metrics, and outputs text.
 // This handles the --output-format stream-json flag for real-time token tracking.
 func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, accumulator *StreamAccumulator, showThinking bool) {
-	parser := NewSSEParser(reader)
+	parser := NewJSONLinesParser(reader)
 
 	for {
 		event, err := parser.Next()
@@ -42,40 +41,37 @@ func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, 
 			break
 		}
 		if err != nil {
-			// Parse error - log and continue
-			fmt.Fprintf(writer, "[stream-json parse error: %v]\n", err)
-			continue
+			// Scanner errors (like "file already closed") are fatal - break out
+			break
 		}
 
 		// Process event and update accumulator
-		if err := accumulator.ProcessEvent(event); err != nil {
-			// Log error but continue processing
-			fmt.Fprintf(writer, "[event processing error: %v]\n", err)
-			continue
-		}
+		_ = accumulator.ProcessEvent(event)
 
 		// Display real-time feedback based on event type
-		switch event.EventType {
-		case EventContentBlockStart:
-			var block ContentBlockStart
-			if err := json.Unmarshal(event.Data, &block); err == nil {
-				if block.ContentBlock.Type == "tool_use" {
-					fmt.Fprintf(writer, "[Tool: %s]\n", block.ContentBlock.Name)
-				} else if block.ContentBlock.Type == "thinking" && showThinking {
-					fmt.Fprintln(writer, "🤔 Thinking...")
+		switch event.Type {
+		case "assistant":
+			if event.Message != nil {
+				for _, block := range event.Message.Content {
+					switch block.Type {
+					case "text":
+						// Stream text output in real-time
+						fmt.Fprint(writer, block.Text)
+					case "tool_use":
+						fmt.Fprintf(writer, "\n[Tool: %s]\n", block.Name)
+					case "thinking":
+						if showThinking {
+							fmt.Fprintln(writer, "🤔 Thinking...")
+							fmt.Fprint(writer, block.Text)
+						}
+					}
 				}
 			}
 
-		case EventContentBlockDelta:
-			var delta ContentBlockDelta
-			if err := json.Unmarshal(event.Data, &delta); err == nil {
-				blockType := accumulator.ActiveBlocks[delta.Index]
-				if blockType == "text" && delta.Delta.Type == "text_delta" {
-					// Stream text output in real-time
-					fmt.Fprint(writer, delta.Delta.Text)
-				} else if blockType == "thinking" && showThinking && delta.Delta.Type == "text_delta" {
-					fmt.Fprint(writer, delta.Delta.Text)
-				}
+		case "system":
+			// Show tool events
+			if event.ToolName != "" && (event.Subtype == "tool_use" || strings.HasPrefix(event.Subtype, "tool_")) {
+				fmt.Fprintf(writer, "\n[Tool: %s]\n", event.ToolName)
 			}
 		}
 	}
