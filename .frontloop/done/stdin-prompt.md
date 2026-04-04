@@ -20,3 +20,17 @@ When stdin is not a TTY, read it as prompt content (appended after positional ar
 
 - Check with os.Stdin.Stat() for ModeCharDevice (same pattern as TTY detection in format.go)
 - Read with io.ReadAll(os.Stdin) before entering RunLoop
+
+## Completion Summary
+
+- Added `ReadStdin(r io.Reader, isTTY bool) (string, error)` to `resolve.go` — reads and trims stdin content when not a TTY
+- Updated `run()` in `juggle.go` to check `os.Stdin.Stat()` for ModeCharDevice, call `ReadStdin`, and append non-empty result to resolved args before building `Config.Content`
+- Moved empty-content check from `RunE` early-return into `run()` after stdin is read, so `juggle` with piped stdin but no positional args still works
+- `--interactive` flag skips stdin reading (stdin belongs to the agent TUI)
+- Added `TestReadStdin` table-driven tests covering non-TTY, TTY, whitespace trimming, blank input, and ordering relative to positional args
+
+### Files Changed
+
+- `internal/cli/resolve.go` (modified)
+- `internal/cli/resolve_test.go` (modified)
+- `internal/cli/juggle.go` (modified)

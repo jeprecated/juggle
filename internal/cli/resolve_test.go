@@ -3,8 +3,79 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ohare93/juggle/internal/agent"
 )
+
+func TestReadStdin(t *testing.T) {
+	t.Run("returns content when not a TTY", func(t *testing.T) {
+		got, err := ReadStdin(strings.NewReader("fix the tests"), false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "fix the tests" {
+			t.Errorf("got %q, want %q", got, "fix the tests")
+		}
+	})
+
+	t.Run("returns empty when TTY", func(t *testing.T) {
+		got, err := ReadStdin(strings.NewReader("ignored"), true)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Errorf("got %q, want empty string for TTY", got)
+		}
+	})
+
+	t.Run("trims surrounding whitespace", func(t *testing.T) {
+		got, err := ReadStdin(strings.NewReader("  hello world  \n"), false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "hello world" {
+			t.Errorf("got %q, want %q", got, "hello world")
+		}
+	})
+
+	t.Run("returns empty for blank stdin", func(t *testing.T) {
+		got, err := ReadStdin(strings.NewReader("   \n  "), false)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != "" {
+			t.Errorf("got %q, want empty for blank input", got)
+		}
+	})
+
+	t.Run("appends after positional args in Run content", func(t *testing.T) {
+		mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+		var stderr strings.Builder
+		cfg := Config{
+			Content:    "arg content\n\nstdin content",
+			Iterations: 1,
+			Runner:     mock,
+			Stderr:     &stderr,
+		}
+		if err := RunLoop(cfg); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		prompt := mock.Calls[0].Prompt
+		argIdx := strings.Index(prompt, "arg content")
+		stdinIdx := strings.Index(prompt, "stdin content")
+		if argIdx < 0 {
+			t.Error("prompt missing arg content")
+		}
+		if stdinIdx < 0 {
+			t.Error("prompt missing stdin content")
+		}
+		if argIdx > stdinIdx {
+			t.Error("expected arg content before stdin content")
+		}
+	})
+}
 
 func TestResolveArgs(t *testing.T) {
 	t.Run("quoted strings pass through", func(t *testing.T) {

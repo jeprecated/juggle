@@ -2,10 +2,24 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ReadStdin reads all content from r if isTTY is false.
+// Returns trimmed content, or "" if isTTY is true or content is blank.
+func ReadStdin(r io.Reader, isTTY bool) (string, error) {
+	if isTTY {
+		return "", nil
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(data)), nil
+}
 
 // ResolveArgs processes positional arguments.
 // Args starting with @ are file paths (contents read and returned).

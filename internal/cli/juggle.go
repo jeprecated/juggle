@@ -306,10 +306,6 @@ Shell completion:
 	Args:              cobra.ArbitraryArgs,
 	ValidArgsFunction: completeArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		watchFlag, _ := cmd.Flags().GetString("watch")
-		if watchFlag == "" && len(args) == 0 {
-			return cmd.Help()
-		}
 		return run(cmd, args)
 	},
 	SilenceUsage:  true,
@@ -345,6 +341,25 @@ func run(cmd *cobra.Command, args []string) error {
 	resolved, err := ResolveArgs(normalArgs)
 	if err != nil {
 		return err
+	}
+
+	// Read piped stdin when not in interactive mode and stdin is not a TTY.
+	if !flags.interactive {
+		if info, statErr := os.Stdin.Stat(); statErr == nil {
+			isTTY := info.Mode()&os.ModeCharDevice != 0
+			stdinContent, readErr := ReadStdin(os.Stdin, isTTY)
+			if readErr != nil {
+				return fmt.Errorf("reading stdin: %w", readErr)
+			}
+			if stdinContent != "" {
+				resolved = append(resolved, stdinContent)
+			}
+		}
+	}
+
+	// Show help when there is no content and no watch mode.
+	if flags.watch == "" && len(resolved) == 0 {
+		return cmd.Help()
 	}
 
 	agentPre, err := BuildPhaseContent(flags.agentPre)
