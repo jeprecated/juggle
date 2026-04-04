@@ -2,9 +2,6 @@
 /juggler
 /juggle
 
-# Config folder
-.juggle/
-
 # Devbox
 /.devbox/
 

@@ -61,7 +61,7 @@ brews:
       name: tap
     directory: Formula
     homepage: https://github.com/ohare93/juggle
-    description: Task management CLI for autonomous AI agent loops
+    description: Minimal agent loop runner
     license: MIT
     install: |
       bin.install "juggle"
@@ -75,5 +75,5 @@ scoops:
       name: scoop
     directory: bucket
     homepage: https://github.com/ohare93/juggle
-    description: Task management CLI for autonomous AI agent loops
+    description: Minimal agent loop runner
     license: MIT

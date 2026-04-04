@@ -171,12 +171,8 @@ main() {
         echo -e "${GREEN}✓${NC} Juggle installed successfully!"
         echo
         echo "Get started:"
-        echo "  1. Add a project directory:"
-        echo "     juggle projects add ~/Development"
-        echo
-        echo "  2. Start a session:"
-        echo "     cd your-project"
-        echo "     juggle start \"Your work description\""
+        echo "  juggle \"your prompt here\" --dry-run"
+        echo "  juggle @task.md -n 5"
         echo
         echo "For more information:"
         echo "  juggle --help"

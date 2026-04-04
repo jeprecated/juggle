@@ -24,15 +24,6 @@
       "test-coverage": [
         "go test -v -coverprofile=coverage.out ./internal/integration_test/...",
         "go tool cover -html=coverage.out -o coverage.html"
-      ],
-      "test-agent-integration": [
-        "go test -v -tags=integration ./internal/agent_integration_test/..."
-      ],
-      "test-tui": [
-        "go test -v ./internal/tui/... -run 'TestStandaloneBall|TestSessionsPanel|TestSessionSelector|TestDependencySelector|TestBallsPanel|TestActivityLog|TestBallDetail|TestSplitBottomPane|TestCyclingBottomPane|TestDetailViewScrolling|TestAgentOutputPanel|TestConfirm|TestHelpView|TestCatwalkStatusBar|TestInputSessionView|TestInputBallView|TestInputBlockedView|TestPanelSearchView|TestInputAcceptanceCriteria|TestInputTagView|TestHistoryView|TestBallForm|TestEdgeCase'"
-      ],
-      "test-tui-rewrite": [
-        "go test -v ./internal/tui/... -run 'TestStandaloneBall|TestSessionsPanel|TestSessionSelector|TestDependencySelector|TestBallsPanel|TestActivityLog|TestBallDetail|TestSplitBottomPane|TestCyclingBottomPane|TestDetailViewScrolling|TestAgentOutputPanel|TestConfirm|TestHelpView|TestCatwalkStatusBar|TestInputSessionView|TestInputBallView|TestInputBlockedView|TestPanelSearchView|TestInputAcceptanceCriteria|TestInputTagView|TestHistoryView|TestBallForm|TestEdgeCase' -rewrite"
       ]
     }
   }
