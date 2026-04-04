@@ -7,13 +7,20 @@ import (
 )
 
 func TestResolveArgs(t *testing.T) {
-	t.Run("raw strings pass through", func(t *testing.T) {
-		got, err := ResolveArgs([]string{"hello", "world"})
+	t.Run("quoted strings pass through", func(t *testing.T) {
+		got, err := ResolveArgs([]string{"hello world", "do stuff"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if len(got) != 2 || got[0] != "hello" || got[1] != "world" {
-			t.Errorf("got %v, want [hello world]", got)
+		if len(got) != 2 || got[0] != "hello world" || got[1] != "do stuff" {
+			t.Errorf("got %v, want [hello world, do stuff]", got)
+		}
+	})
+
+	t.Run("bare words rejected", func(t *testing.T) {
+		_, err := ResolveArgs([]string{"loop"})
+		if err == nil {
+			t.Fatal("expected error for bare word arg")
 		}
 	})
 
