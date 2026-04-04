@@ -95,7 +95,7 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	// Headless mode: read prompt from stdin
 	args = append(args, "-p", "-")
 
-	// Create context with timeout if specified, using opts.Context as base if provided
+	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
 	if baseCtx == nil {
 		baseCtx = context.Background()
@@ -109,7 +109,8 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd := exec.Command("claude", args...)
+	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
@@ -146,6 +147,17 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		io.WriteString(stdin, opts.Prompt)
 	}()
 
+	// cmdDone is closed when cmd.Wait() returns; lets killProcessGroup skip SIGKILL
+	// if the process exits cleanly after SIGTERM.
+	cmdDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killProcessGroup(cmd, 5*time.Second, cmdDone)
+		case <-cmdDone:
+		}
+	}()
+
 	// Stream output to console and capture
 	var wg sync.WaitGroup
 	accumulator := NewStreamAccumulator()
@@ -161,6 +173,7 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 
 	// Wait for command to complete
 	err = cmd.Wait()
+	close(cmdDone)
 	// Wait for output streaming to finish before reading buffer
 	wg.Wait()
 	result.Output = outputBuf.String()
@@ -221,7 +234,7 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	// Interactive mode: pass prompt as argument
 	args = append(args, opts.Prompt)
 
-	// Create context with timeout if specified, using opts.Context as base if provided
+	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
 	if baseCtx == nil {
 		baseCtx = context.Background()
@@ -235,7 +248,8 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.CommandContext(ctx, "claude", args...)
+	cmd := exec.Command("claude", args...)
+	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
@@ -250,8 +264,18 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("failed to start claude: %w", err)
 	}
 
+	cmdDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killProcessGroup(cmd, 5*time.Second, cmdDone)
+		case <-cmdDone:
+		}
+	}()
+
 	// Wait for command to complete
 	err := cmd.Wait()
+	close(cmdDone)
 
 	if err != nil {
 		// Check if this was a timeout

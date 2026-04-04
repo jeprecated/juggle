@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"time"
 )
 
 // OpenCodeProvider implements Provider for OpenCode CLI
@@ -80,7 +81,7 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	// OpenCode takes prompt as argument, not stdin
 	args = append(args, opts.Prompt)
 
-	// Create context with timeout if specified, using opts.Context as base if provided
+	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
 	if baseCtx == nil {
 		baseCtx = context.Background()
@@ -94,7 +95,8 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.CommandContext(ctx, "opencode", args...)
+	cmd := exec.Command("opencode", args...)
+	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
@@ -119,6 +121,15 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("failed to start opencode: %w", err)
 	}
 
+	cmdDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killProcessGroup(cmd, 5*time.Second, cmdDone)
+		case <-cmdDone:
+		}
+	}()
+
 	// Stream output to console and capture
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -133,6 +144,7 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 
 	// Wait for command to complete
 	err = cmd.Wait()
+	close(cmdDone)
 	wg.Wait()
 	result.Output = outputBuf.String()
 
@@ -177,7 +189,7 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		args = append(args, "--prompt", opts.Prompt)
 	}
 
-	// Create context with timeout if specified, using opts.Context as base if provided
+	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
 	if baseCtx == nil {
 		baseCtx = context.Background()
@@ -191,7 +203,8 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.CommandContext(ctx, "opencode", args...)
+	cmd := exec.Command("opencode", args...)
+	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
@@ -209,8 +222,18 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("failed to start opencode: %w", err)
 	}
 
+	cmdDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killProcessGroup(cmd, 5*time.Second, cmdDone)
+		case <-cmdDone:
+		}
+	}()
+
 	// Wait for command to complete
 	err := cmd.Wait()
+	close(cmdDone)
 
 	if err != nil {
 		// Check if this was a timeout
