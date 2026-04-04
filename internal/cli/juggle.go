@@ -48,6 +48,7 @@ type Config struct {
 	MaxFailures  int           // Stop after N consecutive non-zero exits (0 = disabled)
 	CmdBefore    string        // Shell command to run before each iteration
 	CmdAfter     string        // Shell command to run after each iteration
+	StopWhen     string        // Shell command; exit 0 stops the loop gracefully
 	AgentPre     string        // Agent session prompt to run once before the loop
 	AgentBefore  string        // Agent session prompt to run before each iteration
 	AgentAfter   string        // Agent session prompt to run after each iteration
@@ -110,6 +111,7 @@ var flags struct {
 	maxFailures  int
 	cmdBefore    string
 	cmdAfter     string
+	stopWhen     string
 	agentPre     []string
 	agentBefore  []string
 	agentAfter   []string
@@ -134,6 +136,7 @@ func init() {
 	f.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
 	f.StringVar(&flags.cmdBefore, "cmd-before", "", "shell command to run before each iteration")
 	f.StringVar(&flags.cmdAfter, "cmd-after", "", "shell command to run after each iteration")
+	f.StringVar(&flags.stopWhen, "stop-when", "", "shell command; exit 0 stops the loop gracefully")
 	f.StringSliceVar(&flags.agentPre, "agent-pre", nil, "agent session prompt(s) to run once before the loop (comma-separated)")
 	f.StringSliceVar(&flags.agentBefore, "agent-before", nil, "agent session prompt(s) to run before each iteration (comma-separated)")
 	f.StringSliceVar(&flags.agentAfter, "agent-after", nil, "agent session prompt(s) to run after each iteration (comma-separated)")
@@ -250,6 +253,7 @@ func run(cmd *cobra.Command, args []string) error {
 		MaxFailures:  flags.maxFailures,
 		CmdBefore:    flags.cmdBefore,
 		CmdAfter:     flags.cmdAfter,
+		StopWhen:     flags.stopWhen,
 		AgentPre:     agentPre,
 		AgentBefore:  agentBefore,
 		AgentAfter:   agentAfter,
@@ -443,6 +447,21 @@ func RunLoop(cfg Config) error {
 			}
 			if err := runHook(cfg.CmdAfter, afterEnv, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "cmd-after failed (iteration %d): %v\n", i, err)
+			}
+		}
+
+		// Run stop-when; exit 0 means stop gracefully
+		if cfg.StopWhen != "" {
+			stopEnv := hookEnv{
+				iteration:     i,
+				maxIterations: max,
+				exitCode:      result.ExitCode,
+				inputTokens:   result.InputTokens,
+				outputTokens:  result.OutputTokens,
+			}
+			if err := runHook(cfg.StopWhen, stopEnv, cfg.Stderr); err == nil {
+				fmt.Fprintf(cfg.Stderr, "stop-when condition met after iteration %d, stopping\n", i)
+				return nil
 			}
 		}
 

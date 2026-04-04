@@ -237,6 +237,21 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			}
 		}
 
+		// Run stop-when; exit 0 means stop gracefully
+		if cfg.StopWhen != "" {
+			stopEnv := hookEnv{
+				iteration:     i,
+				maxIterations: max,
+				exitCode:      result.ExitCode,
+				inputTokens:   result.InputTokens,
+				outputTokens:  result.OutputTokens,
+			}
+			if err := runHook(cfg.StopWhen, stopEnv, cfg.Stderr); err == nil {
+				fmt.Fprintf(cfg.Stderr, "stop-when condition met after iteration %d, stopping\n", i)
+				return nil
+			}
+		}
+
 		// Wait between iterations (skip after last), interruptible by shutdown
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
 			d := computeDelay(cfg.Delay, cfg.Fuzz)

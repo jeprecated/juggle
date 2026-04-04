@@ -439,6 +439,74 @@ func TestRunLoop_RateLimitNotCountedAsFailure(t *testing.T) {
 	}
 }
 
+func TestRunLoop_StopWhenExitsZeroStops(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "done1"},
+		&agent.RunResult{Output: "done2"},
+		&agent.RunResult{Output: "done3"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 10,
+		Runner:     mock,
+		Stderr:     &stderr,
+		StopWhen:   "true", // always exits 0
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call before stop-when triggered, got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "stop-when") {
+		t.Errorf("expected stop-when message in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_StopWhenNonZeroContinues(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "done1"},
+		&agent.RunResult{Output: "done2"},
+		&agent.RunResult{Output: "done3"},
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 3,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+		StopWhen:   "false", // always exits non-zero
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls when stop-when never exits 0, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_StopWhenIterationsWinsFirst(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "done1"},
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+		StopWhen:   "false", // never exits 0
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call, got %d", len(mock.Calls))
+	}
+}
+
 func TestComputeDelay(t *testing.T) {
 	t.Run("zero delay and fuzz", func(t *testing.T) {
 		if d := computeDelay(0, 0); d != 0 {

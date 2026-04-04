@@ -21,3 +21,18 @@ Add `--stop-when CMD` flag that runs a shell command after each iteration. If th
 
 - Receives same environment variables as --cmd-after hook
 - Evaluated after --cmd-after but before delay/fuzz sleep
+
+## Completion Summary
+
+- Added `StopWhen string` field to `Config` struct
+- Added `--stop-when` flag in `init()` and wired through `run()` → `cfg`
+- In `RunLoop`: after cmd-after, runs stop-when hook; exit 0 logs "stop-when condition met" and returns nil
+- In `runWatchTask`: same stop-when logic added after cmd-after block
+- Tests: `TestRunLoop_StopWhenExitsZeroStops`, `TestRunLoop_StopWhenNonZeroContinues`, `TestRunLoop_StopWhenIterationsWinsFirst`, `TestRunWatchTask_StopWhenExitsZeroStops`
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/watch.go` (modified)
+- `internal/cli/juggle_test.go` (modified)
+- `internal/cli/watch_test.go` (modified)

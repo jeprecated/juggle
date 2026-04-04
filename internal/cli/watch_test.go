@@ -308,3 +308,33 @@ func TestBuildRunOptions(t *testing.T) {
 		}
 	})
 }
+
+func TestRunWatchTask_StopWhenExitsZeroStops(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("do work"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "iter1"},
+		&agent.RunResult{Output: "iter2"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "context",
+		Iterations: 10,
+		Runner:     mock,
+		Stderr:     &stderr,
+		StopWhen:   "true", // always exits 0
+	}
+
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call before stop-when triggered, got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "stop-when") {
+		t.Errorf("expected stop-when message in stderr, got: %s", stderr.String())
+	}
+}
