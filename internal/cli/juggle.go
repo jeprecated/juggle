@@ -33,6 +33,7 @@ type Config struct {
 	MaxWait      time.Duration // Max rate limit wait
 	DryRun       bool          // Show prompt, don't run
 	ShowThinking bool          // Show thinking blocks
+	Verbose      bool          // Show tool inputs in headless output
 
 	Runner agent.Runner // Injected runner (nil = build from Provider flag)
 	Stdout io.Writer
@@ -53,6 +54,7 @@ var flags struct {
 	maxWait      time.Duration
 	dryRun       bool
 	showThinking bool
+	verbose      bool
 }
 
 func init() {
@@ -69,6 +71,7 @@ func init() {
 	f.DurationVar(&flags.maxWait, "max-wait", 0, "max rate limit wait")
 	f.BoolVar(&flags.dryRun, "dry-run", false, "show prompt, don't run")
 	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
+	f.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
 
 	rootCmd.AddCommand(completionCmd)
 }
@@ -134,6 +137,7 @@ func run(cmd *cobra.Command, args []string) error {
 		MaxWait:      flags.maxWait,
 		DryRun:       flags.dryRun,
 		ShowThinking: flags.showThinking,
+		Verbose:      flags.verbose,
 	}
 
 	// Build runner from provider flag

@@ -58,6 +58,7 @@ type RunOptions struct {
 	Model        string         // canonical model name (e.g., "opus", "sonnet", "haiku")
 	WorkingDir   string         // working directory for command execution
 	ShowThinking bool           // Include thinking blocks in output
+	Verbose      bool           // Show tool inputs alongside tool names
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

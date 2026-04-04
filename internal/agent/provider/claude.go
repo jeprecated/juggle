@@ -145,7 +145,7 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		streamJSONOutput(stdout, &outputBuf, os.Stdout, accumulator, opts.ShowThinking)
+		streamJSONOutput(stdout, &outputBuf, os.Stdout, accumulator, opts.ShowThinking, opts.Verbose)
 	}()
 	go func() {
 		defer wg.Done()

@@ -172,5 +172,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		Model:        cfg.Model,
 		Timeout:      cfg.Timeout,
 		ShowThinking: cfg.ShowThinking,
+		Verbose:      cfg.Verbose,
 	}
 }

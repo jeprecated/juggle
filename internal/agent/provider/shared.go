@@ -2,6 +2,7 @@ package provider
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -32,7 +33,7 @@ func streamOutput(reader io.Reader, buf *strings.Builder, writer io.Writer) {
 
 // streamJSONOutput parses JSON Lines format, accumulates metrics, and outputs text.
 // This handles the --output-format stream-json flag for real-time token tracking.
-func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, accumulator *StreamAccumulator, showThinking bool) {
+func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, accumulator *StreamAccumulator, showThinking bool, verbose bool) {
 	parser := NewJSONLinesParser(reader)
 
 	var lastTool string // tracks last tool name for dedup
@@ -62,7 +63,15 @@ func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, 
 						lastTool = "" // reset dedup on text output
 					case "tool_use":
 						if block.Name != lastTool {
-							fmt.Fprintf(writer, "\n[Tool: %s]\n", block.Name)
+							if verbose {
+								if summary := formatToolInput(block.Name, block.Input); summary != "" {
+									fmt.Fprintf(writer, "\n[Tool: %s] %s\n", block.Name, summary)
+								} else {
+									fmt.Fprintf(writer, "\n[Tool: %s]\n", block.Name)
+								}
+							} else {
+								fmt.Fprintf(writer, "\n[Tool: %s]\n", block.Name)
+							}
 							lastTool = block.Name
 						}
 					case "thinking":
@@ -87,4 +96,71 @@ func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, 
 
 	// Write final accumulated text to buffer
 	buf.WriteString(accumulator.GetText())
+}
+
+// formatToolInput returns a compact summary of tool input for verbose output.
+func formatToolInput(toolName string, input any) string {
+	m, ok := input.(map[string]interface{})
+	if !ok || len(m) == 0 {
+		return ""
+	}
+
+	switch toolName {
+	case "Bash":
+		if cmd, ok := m["command"].(string); ok {
+			if len(cmd) > 120 {
+				return cmd[:120] + "..."
+			}
+			return cmd
+		}
+	case "Read":
+		if fp, ok := m["file_path"].(string); ok {
+			return fp
+		}
+	case "Write":
+		if fp, ok := m["file_path"].(string); ok {
+			return fp
+		}
+	case "Edit":
+		if fp, ok := m["file_path"].(string); ok {
+			return fp
+		}
+	case "Grep":
+		pat, _ := m["pattern"].(string)
+		path, _ := m["path"].(string)
+		glob, _ := m["glob"].(string)
+		var parts []string
+		if pat != "" {
+			parts = append(parts, fmt.Sprintf("%q", pat))
+		}
+		if glob != "" {
+			parts = append(parts, "in "+glob)
+		} else if path != "" {
+			parts = append(parts, "in "+path)
+		}
+		if len(parts) > 0 {
+			return strings.Join(parts, " ")
+		}
+	case "Glob":
+		pat, _ := m["pattern"].(string)
+		path, _ := m["path"].(string)
+		if pat != "" {
+			if path != "" {
+				return pat + " in " + path
+			}
+			return pat
+		}
+	default:
+		b, err := json.Marshal(m)
+		if err != nil {
+			return ""
+		}
+		s := string(b)
+		if len(s) > 100 {
+			return s[:100] + "..."
+		}
+		return s
+	}
+
+	return ""
 }
