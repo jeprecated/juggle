@@ -543,26 +543,28 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 	// Pre-loop check: is there any work the agent can do?
 	// Exit early if all balls are blocked (need human intervention) or no actionable balls exist
 	// Exception: --ball or --interactive means human IS intervening, so blocked balls are workable
-	workable, blockedCount, totalCount, err := countWorkableBalls(config.ProjectDir, config.SessionID, config.BallID, config.Interactive)
-	if err != nil {
-		return nil, fmt.Errorf("checking workable balls: %w", err)
-	}
+	if !config.Manual {
+		workable, blockedCount, totalCount, err := countWorkableBalls(config.ProjectDir, config.SessionID, config.BallID, config.Interactive)
+		if err != nil {
+			return nil, fmt.Errorf("checking workable balls: %w", err)
+		}
 
-	if workable == 0 {
-		result.EndedAt = time.Now()
-		result.Iterations = 0
-		result.BallsTotal = totalCount
-		result.BallsBlocked = blockedCount
+		if workable == 0 {
+			result.EndedAt = time.Now()
+			result.Iterations = 0
+			result.BallsTotal = totalCount
+			result.BallsBlocked = blockedCount
 
-		if blockedCount > 0 {
-			fmt.Fprintf(os.Stderr, "⏸ No actionable work: %d ball(s) blocked, waiting for human intervention\n", blockedCount)
-			result.Blocked = true
+			if blockedCount > 0 {
+				fmt.Fprintf(os.Stderr, "⏸ No actionable work: %d ball(s) blocked, waiting for human intervention\n", blockedCount)
+				result.Blocked = true
+				return result, nil
+			}
+			// No balls at all (all complete/researched or truly empty)
+			fmt.Fprintf(os.Stderr, "✓ No actionable balls in session\n")
+			result.Complete = true
 			return result, nil
 		}
-		// No balls at all (all complete/researched or truly empty)
-		fmt.Fprintf(os.Stderr, "✓ No actionable balls in session\n")
-		result.Complete = true
-		return result, nil
 	}
 
 	for iteration := 1; iteration <= config.MaxIterations; iteration++ {
@@ -627,70 +629,95 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 			}
 		}
 
-		// Load balls for model selection
-		balls, err := loadBallsForModelSelection(config.ProjectDir, config.SessionID, config.BallID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load balls for model selection: %w", err)
-		}
+		var modelSelection *ModelSelection
+		var prompt string
 
-		// Check for ball-level AgentProvider override when working on a single ball
-		activeBalls := filterActiveBalls(balls)
-		if len(activeBalls) == 1 && activeBalls[0].AgentProvider != "" && config.Provider == "" {
-			// Ball has an AgentProvider override and CLI didn't explicitly set one
-			ballProvider := activeBalls[0].AgentProvider
-			if provider.IsAvailable(provider.Type(ballProvider)) {
-				agentProv := provider.Get(provider.Type(ballProvider))
-				agent.SetProvider(agentProv)
-				fmt.Printf("🔧 Provider: %s (ball %s has agent_provider override)\n", ballProvider, activeBalls[0].ShortID())
+		if config.Manual {
+			model := config.Model
+			if model == "" {
+				model = "sonnet"
+			}
+			modelSelection = &ModelSelection{Model: model, Reason: "manual mode"}
+
+			var promptErr error
+			if config.WatchTaskFile != "" {
+				taskData, readErr := os.ReadFile(config.WatchTaskFile)
+				if readErr != nil {
+					return nil, fmt.Errorf("failed to read task file %s: %w", config.WatchTaskFile, readErr)
+				}
+				prompt, promptErr = generateWatchPrompt(string(taskData), config.Contexts, iteration)
 			} else {
-				fmt.Fprintf(os.Stderr, "⚠️  Ball %s has agent_provider=%q but it's not available, using default\n", activeBalls[0].ShortID(), ballProvider)
+				prompt, promptErr = generateManualPrompt(config.Contexts, iteration)
 			}
-		}
-
-		// Get session default model
-		var sessionDefaultModel session.ModelSize
-		if juggleSession != nil {
-			sessionDefaultModel = juggleSession.DefaultModel
-		}
-
-		// Select optimal model for this iteration
-		modelSelection := selectModelForIteration(config, balls, sessionDefaultModel)
-
-		// Log model selection (only if not explicitly set)
-		if config.Model == "" {
-			fmt.Printf("🤖 Model: %s (%s)\n\n", modelSelection.Model, modelSelection.Reason)
-		}
-
-		// Daemon mode: update state file for TUI to read
-		if config.DaemonMode {
-			var currentBallID, currentBallTitle string
-			var acsTotal int
-			if len(activeBalls) > 0 {
-				currentBallID = activeBalls[0].ShortID()
-				currentBallTitle = activeBalls[0].Title
-				acsTotal = len(activeBalls[0].AcceptanceCriteria)
+			if promptErr != nil {
+				return nil, fmt.Errorf("failed to generate prompt: %w", promptErr)
 			}
-			state := &daemon.State{
-				Running:          true,
-				Paused:           daemonPaused,
-				CurrentBallID:    currentBallID,
-				CurrentBallTitle: currentBallTitle,
-				Iteration:        iteration,
-				MaxIterations:    config.MaxIterations,
-				ACsComplete:      0,      // AC completion not tracked per-item currently
-				ACsTotal:         acsTotal,
-				Model:            modelSelection.Model,
-				Provider:         string(providerType),
-				StartedAt:        startTime,
+		} else {
+			// Load balls for model selection
+			balls, err := loadBallsForModelSelection(config.ProjectDir, config.SessionID, config.BallID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load balls for model selection: %w", err)
 			}
-			// Best effort - don't fail if state write fails
-			_ = daemon.WriteStateFile(config.ProjectDir, storageID, state)
-		}
 
-		// Generate prompt using export command
-		prompt, err := generateAgentPrompt(config.ProjectDir, config.SessionID, config.Debug, config.BallID, config.Message)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate prompt: %w", err)
+			// Check for ball-level AgentProvider override when working on a single ball
+			activeBalls := filterActiveBalls(balls)
+			if len(activeBalls) == 1 && activeBalls[0].AgentProvider != "" && config.Provider == "" {
+				// Ball has an AgentProvider override and CLI didn't explicitly set one
+				ballProvider := activeBalls[0].AgentProvider
+				if provider.IsAvailable(provider.Type(ballProvider)) {
+					agentProv := provider.Get(provider.Type(ballProvider))
+					agent.SetProvider(agentProv)
+					fmt.Printf("🔧 Provider: %s (ball %s has agent_provider override)\n", ballProvider, activeBalls[0].ShortID())
+				} else {
+					fmt.Fprintf(os.Stderr, "⚠️  Ball %s has agent_provider=%q but it's not available, using default\n", activeBalls[0].ShortID(), ballProvider)
+				}
+			}
+
+			// Get session default model
+			var sessionDefaultModel session.ModelSize
+			if juggleSession != nil {
+				sessionDefaultModel = juggleSession.DefaultModel
+			}
+
+			// Select optimal model for this iteration
+			modelSelection = selectModelForIteration(config, balls, sessionDefaultModel)
+
+			// Log model selection (only if not explicitly set)
+			if config.Model == "" {
+				fmt.Printf("🤖 Model: %s (%s)\n\n", modelSelection.Model, modelSelection.Reason)
+			}
+
+			// Daemon mode: update state file for TUI to read
+			if config.DaemonMode {
+				var currentBallID, currentBallTitle string
+				var acsTotal int
+				if len(activeBalls) > 0 {
+					currentBallID = activeBalls[0].ShortID()
+					currentBallTitle = activeBalls[0].Title
+					acsTotal = len(activeBalls[0].AcceptanceCriteria)
+				}
+				state := &daemon.State{
+					Running:          true,
+					Paused:           daemonPaused,
+					CurrentBallID:    currentBallID,
+					CurrentBallTitle: currentBallTitle,
+					Iteration:        iteration,
+					MaxIterations:    config.MaxIterations,
+					ACsComplete:      0,      // AC completion not tracked per-item currently
+					ACsTotal:         acsTotal,
+					Model:            modelSelection.Model,
+					Provider:         string(providerType),
+					StartedAt:        startTime,
+				}
+				// Best effort - don't fail if state write fails
+				_ = daemon.WriteStateFile(config.ProjectDir, storageID, state)
+			}
+
+			// Generate prompt using export command
+			prompt, err = generateAgentPrompt(config.ProjectDir, config.SessionID, config.Debug, config.BallID, config.Message)
+			if err != nil {
+				return nil, fmt.Errorf("failed to generate prompt: %w", err)
+			}
 		}
 
 		// Build run options
@@ -835,6 +862,17 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 				fmt.Printf("⚠️  Agent signaled COMPLETE but did not update progress. Continuing iteration...\n")
 				// Don't accept the signal - continue to check terminal state
 			} else {
+				if config.Manual {
+					if runResult.CommitMessage != "" {
+						commitResult, commitErr := performJJCommit(config.ProjectDir, runResult.CommitMessage)
+						if commitErr == nil && commitResult != nil && commitResult.Success && commitResult.CommitHash != "" {
+							fmt.Printf("📝 Committed: %s\n", commitResult.CommitHash)
+						}
+					}
+					result.Complete = true
+					result.CommitMessage = runResult.CommitMessage
+					break
+				}
 				// VALIDATE: Check if all balls are actually in terminal state (complete or blocked)
 				terminal, complete, blocked, total := checkBallsTerminal(config.ProjectDir, config.SessionID, config.BallID)
 				if total > 0 && terminal == total {
@@ -876,6 +914,17 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 				fmt.Printf("⚠️  Agent signaled CONTINUE but did not update progress. Continuing iteration...\n")
 				// Don't accept the signal - fall through to terminal state check
 			} else {
+				if config.Manual {
+					fmt.Println()
+					fmt.Printf("✓ Continuing to next iteration...\n")
+					if runResult.CommitMessage != "" {
+						commitResult, commitErr := performJJCommit(config.ProjectDir, runResult.CommitMessage)
+						if commitErr == nil && commitResult != nil && commitResult.Success && commitResult.CommitHash != "" {
+							fmt.Printf("📝 Committed: %s\n", commitResult.CommitHash)
+						}
+					}
+					continue
+				}
 				// Agent completed one ball, more remain - continue to next iteration
 				fmt.Println()
 				fmt.Printf("✓ Agent completed a ball, continuing to next iteration...\n")
@@ -966,14 +1015,16 @@ func RunAgentLoop(config AgentLoopConfig) (*AgentResult, error) {
 		}
 
 		// Check if all balls are in terminal state (complete or blocked)
-		terminal, complete, blocked, total := checkBallsTerminal(config.ProjectDir, config.SessionID, config.BallID)
-		result.BallsComplete = complete
-		result.BallsBlocked = blocked
-		result.BallsTotal = total
+		if !config.Manual {
+			terminal, complete, blocked, total := checkBallsTerminal(config.ProjectDir, config.SessionID, config.BallID)
+			result.BallsComplete = complete
+			result.BallsBlocked = blocked
+			result.BallsTotal = total
 
-		if total > 0 && terminal == total {
-			result.Complete = true
-			break
+			if total > 0 && terminal == total {
+				result.Complete = true
+				break
+			}
 		}
 
 		// Delay before next iteration (unless this was the last one)
