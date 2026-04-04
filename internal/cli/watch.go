@@ -98,6 +98,7 @@ func RunWatch(cfg Config) error {
 func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error {
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
+	consecutiveFailures := 0
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -166,6 +167,16 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			// Retry same iteration
 			i--
 			continue
+		}
+
+		// Track consecutive failures (non-zero exit code)
+		if result.ExitCode != 0 {
+			consecutiveFailures++
+			if cfg.MaxFailures > 0 && consecutiveFailures >= cfg.MaxFailures {
+				return fmt.Errorf("stopping: %d consecutive failures", consecutiveFailures)
+			}
+		} else {
+			consecutiveFailures = 0
 		}
 
 		// Success: reset backoff, accumulate stats, and print status

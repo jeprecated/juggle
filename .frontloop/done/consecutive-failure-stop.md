@@ -21,3 +21,20 @@ After N consecutive non-zero exit codes from the agent (default 3), stop the loo
 
 - Simple counter variable in the loop, reset on success
 - Check after result processing, before delay/fuzz sleep
+
+## Completion Summary
+
+- Added `MaxFailures int` field to `Config` struct in `juggle.go`
+- Added `--max-failures` flag (default 3) bound to `flags.maxFailures` in `init()`
+- Wired `MaxFailures` from flags into `Config` in the `run()` handler
+- Added `consecutiveFailures` counter in `RunLoop`: increments on non-zero exit, resets on exit 0, stops with `"stopping: N consecutive failures"` when threshold reached
+- Added same counter logic in `runWatchTask` in `watch.go`
+- Rate-limited iterations continue to skip the failure-counting path (via `continue` before it)
+- `MaxFailures=0` disables the check (guarded by `cfg.MaxFailures > 0`)
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/watch.go` (modified)
+- `internal/cli/juggle_test.go` (modified)
+- `internal/cli/watch_test.go` (modified)

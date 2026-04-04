@@ -209,6 +209,64 @@ func TestRunWatch_PreClosedShutdown(t *testing.T) {
 	}
 }
 
+func TestRunWatchTask_ConsecutiveFailuresStop(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // should not be reached
+	)
+	cfg := Config{
+		Content:     "context",
+		Iterations:  10,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if err == nil {
+		t.Fatal("expected error on consecutive failures")
+	}
+	if !strings.Contains(err.Error(), "3 consecutive failures") {
+		t.Errorf("error should mention '3 consecutive failures', got: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls before stop, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunWatchTask_ConsecutiveFailureCounterResets(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // resets counter
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+	)
+	cfg := Config{
+		Content:     "context",
+		Iterations:  5,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if err != nil {
+		t.Fatalf("counter should reset on success, got: %v", err)
+	}
+	if len(mock.Calls) != 5 {
+		t.Errorf("expected 5 calls, got %d", len(mock.Calls))
+	}
+}
+
 func TestBuildRunOptions(t *testing.T) {
 	t.Run("headless mode with accept edits", func(t *testing.T) {
 		cfg := Config{

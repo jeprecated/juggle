@@ -45,6 +45,7 @@ type Config struct {
 	DryRun       bool          // Show prompt, don't run
 	ShowThinking bool          // Show thinking blocks
 	Verbose      bool          // Show tool inputs in headless output
+	MaxFailures  int           // Stop after N consecutive non-zero exits (0 = disabled)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -100,6 +101,7 @@ var flags struct {
 	dryRun       bool
 	showThinking bool
 	verbose      bool
+	maxFailures  int
 }
 
 func init() {
@@ -117,6 +119,7 @@ func init() {
 	f.BoolVar(&flags.dryRun, "dry-run", false, "show prompt, don't run")
 	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
 	f.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
+	f.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -209,6 +212,7 @@ func run(cmd *cobra.Command, args []string) error {
 		DryRun:       flags.dryRun,
 		ShowThinking: flags.showThinking,
 		Verbose:      flags.verbose,
+		MaxFailures:  flags.maxFailures,
 	}
 
 	// Build runner from provider flag
@@ -272,6 +276,7 @@ func RunLoop(cfg Config) error {
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
 	stats := runStats{start: time.Now()}
+	consecutiveFailures := 0
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -332,6 +337,16 @@ func RunLoop(cfg Config) error {
 			// Retry same iteration
 			i--
 			continue
+		}
+
+		// Track consecutive failures (non-zero exit code)
+		if result.ExitCode != 0 {
+			consecutiveFailures++
+			if cfg.MaxFailures > 0 && consecutiveFailures >= cfg.MaxFailures {
+				return fmt.Errorf("stopping: %d consecutive failures", consecutiveFailures)
+			}
+		} else {
+			consecutiveFailures = 0
 		}
 
 		// Success: reset backoff, accumulate stats, and print status

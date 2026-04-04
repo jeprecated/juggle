@@ -341,6 +341,104 @@ func TestNoArgsExecuteShowsHelp(t *testing.T) {
 	}
 }
 
+func TestRunLoop_ConsecutiveFailuresStop(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // should not be reached
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:     "test",
+		Iterations:  10,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &stderr,
+	}
+	err := RunLoop(cfg)
+	if err == nil {
+		t.Fatal("expected error on consecutive failures")
+	}
+	if !strings.Contains(err.Error(), "3 consecutive failures") {
+		t.Errorf("error should mention '3 consecutive failures', got: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls before stop, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_ConsecutiveFailureCounterResets(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // success resets counter
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+	)
+	cfg := Config{
+		Content:     "test",
+		Iterations:  5,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("counter should reset on success, got error: %v", err)
+	}
+	if len(mock.Calls) != 5 {
+		t.Errorf("expected 5 calls, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_MaxFailuresZeroDisablesCheck(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+	)
+	cfg := Config{
+		Content:     "test",
+		Iterations:  5,
+		MaxFailures: 0, // disabled
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("MaxFailures=0 should disable check, got: %v", err)
+	}
+	if len(mock.Calls) != 5 {
+		t.Errorf("expected 5 calls, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_RateLimitNotCountedAsFailure(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{RateLimited: true, RetryAfter: 1 * time.Millisecond},
+		&agent.RunResult{ExitCode: 0}, // iter 3 retry: success resets to 0
+	)
+	cfg := Config{
+		Content:     "test",
+		Iterations:  3,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("rate-limited retry should not count as failure: %v", err)
+	}
+	if len(mock.Calls) != 4 {
+		t.Errorf("expected 4 calls (fail+fail+rate-limit+success), got %d", len(mock.Calls))
+	}
+}
+
 func TestComputeDelay(t *testing.T) {
 	t.Run("zero delay and fuzz", func(t *testing.T) {
 		if d := computeDelay(0, 0); d != 0 {
