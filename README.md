@@ -70,6 +70,22 @@ juggle --watch queue/ready/ @worker-instructions.md
 | `--max-wait` | duration | 0 | Max rate limit wait |
 | `--dry-run` | bool | false | Show composed prompt, don't run |
 | `--show-thinking` | bool | false | Show model thinking blocks |
+| `--label` | string | | Optional label for the run (exposed as `JUGGLE_LABEL`) |
+
+### Environment variables
+
+Juggle sets the following environment variables on every spawned agent process. Prompts, skills, and MCP servers can read these to inspect loop state.
+
+| Variable | Description |
+|----------|-------------|
+| `JUGGLE_ITERATION` | Current iteration number (1-indexed) |
+| `JUGGLE_MAX_ITERATIONS` | Total planned iterations (`0` = unlimited) |
+| `JUGGLE_RUN_ID` | Stable UUID for the entire run invocation |
+| `JUGGLE_MODEL` | Model name passed to the agent |
+| `JUGGLE_PROVIDER` | Provider name (`claude`, `opencode`, …) |
+| `JUGGLE_LABEL` | Run label if `--label` was set (omitted otherwise) |
+| `JUGGLE_TASK_FILE` | *(watch mode only)* Absolute path to the current task file |
+| `JUGGLE_WORKER_ID` | *(worker pool only)* 0-indexed worker number |
 
 ## Prerequisites
 

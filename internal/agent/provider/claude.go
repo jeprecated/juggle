@@ -278,6 +278,9 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), opts.Env...)
+	}
 
 	// Inherit terminal for full TUI
 	cmd.Stdin = os.Stdin

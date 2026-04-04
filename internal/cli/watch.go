@@ -100,6 +100,9 @@ func RunWatch(cfg Config) error {
 // Re-reads the task file each iteration to pick up agent-appended progress.
 // stats is updated with completed iteration metrics (may be nil).
 func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error {
+	if cfg.RunID == "" {
+		cfg.RunID = generateRunID()
+	}
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
 	consecutiveFailures := 0
@@ -158,6 +161,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 		prompt := BuildWatchPrompt(string(contents), cfg.Content, filename, i, max)
 		opts := buildRunOptions(cfg, prompt)
+		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, taskFile, -1)...)
 
 		result, err := cfg.Runner.Run(opts)
 		if err != nil {

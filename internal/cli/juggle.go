@@ -59,6 +59,8 @@ type Config struct {
 	HooksSettingsFile string        // path to temp hooks settings JSON file (Claude-specific)
 	Log               string        // Path to log file (summary appended on completion)
 	MaxCost           float64       // Stop loop when cumulative cost exceeds this (0 = disabled)
+	Label             string        // Optional run label (exposed as JUGGLE_LABEL)
+	RunID             string        // Stable UUID for the entire run (generated in Run() if empty)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -161,6 +163,7 @@ var flags struct {
 	hooksFile    string
 	log          string
 	maxCost      float64
+	label        string
 }
 
 func init() {
@@ -190,6 +193,7 @@ func init() {
 	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
 	f.StringVar(&flags.log, "log", "", "append run summary to this file on completion")
 	f.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
+	f.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -316,6 +320,7 @@ func run(cmd *cobra.Command, args []string) error {
 		HooksSettingsFile: hooksSettingsFile,
 		Log:               flags.log,
 		MaxCost:           flags.maxCost,
+		Label:             flags.label,
 	}
 
 	// Build runner from provider flag
@@ -356,6 +361,9 @@ func Run(cfg Config) error {
 	if cfg.Stderr == nil {
 		cfg.Stderr = os.Stderr
 	}
+	if cfg.RunID == "" {
+		cfg.RunID = generateRunID()
+	}
 
 	if cfg.DryRun {
 		prompt := BuildPrompt(cfg.Content, 1, cfg.Iterations)
@@ -374,6 +382,9 @@ func Run(cfg Config) error {
 func RunLoop(cfg Config) error {
 	if cfg.Stderr == nil {
 		cfg.Stderr = os.Stderr
+	}
+	if cfg.RunID == "" {
+		cfg.RunID = generateRunID()
 	}
 
 	max := cfg.Iterations
@@ -426,6 +437,7 @@ func RunLoop(cfg Config) error {
 
 		prompt := BuildPrompt(cfg.Content, i, max)
 		opts := buildRunOptions(cfg, prompt)
+		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, "", -1)...)
 
 		result, err := cfg.Runner.Run(opts)
 		if err != nil {
