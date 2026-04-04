@@ -3,15 +3,13 @@ package agent
 import (
 	"testing"
 	"time"
-
-	"github.com/ohare93/juggle/internal/agent/provider"
 )
 
 func TestMockRunner_Run(t *testing.T) {
 	t.Run("returns queued responses in order", func(t *testing.T) {
 		mock := NewMockRunner(
-			&RunResult{Output: "first", Complete: true},
-			&RunResult{Output: "second", Blocked: true, BlockedReason: "test reason"},
+			&RunResult{Output: "first"},
+			&RunResult{Output: "second", ExitCode: 1},
 		)
 
 		// First call
@@ -22,9 +20,6 @@ func TestMockRunner_Run(t *testing.T) {
 		if result.Output != "first" {
 			t.Errorf("expected output 'first', got '%s'", result.Output)
 		}
-		if !result.Complete {
-			t.Error("expected Complete=true")
-		}
 
 		// Second call
 		result, err = mock.Run(RunOptions{Prompt: "prompt2", Permission: PermissionBypass})
@@ -34,11 +29,8 @@ func TestMockRunner_Run(t *testing.T) {
 		if result.Output != "second" {
 			t.Errorf("expected output 'second', got '%s'", result.Output)
 		}
-		if !result.Blocked {
-			t.Error("expected Blocked=true")
-		}
-		if result.BlockedReason != "test reason" {
-			t.Errorf("expected BlockedReason 'test reason', got '%s'", result.BlockedReason)
+		if result.ExitCode != 1 {
+			t.Errorf("expected ExitCode=1, got %d", result.ExitCode)
 		}
 	})
 
@@ -68,22 +60,22 @@ func TestMockRunner_Run(t *testing.T) {
 		}
 	})
 
-	t.Run("returns default blocked when exhausted", func(t *testing.T) {
+	t.Run("returns default error when exhausted", func(t *testing.T) {
 		mock := NewMockRunner(&RunResult{Output: "only one"})
 
 		// First call succeeds
 		mock.Run(RunOptions{Prompt: "first"})
 
-		// Second call should return default blocked
+		// Second call should return default error result
 		result, err := mock.Run(RunOptions{Prompt: "second"})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if !result.Blocked {
-			t.Error("expected Blocked=true when exhausted")
+		if result.ExitCode != 1 {
+			t.Errorf("expected ExitCode=1 when exhausted, got %d", result.ExitCode)
 		}
-		if result.BlockedReason != "MockRunner exhausted" {
-			t.Errorf("expected BlockedReason 'MockRunner exhausted', got '%s'", result.BlockedReason)
+		if result.Output != "No more mock responses" {
+			t.Errorf("expected output 'No more mock responses', got '%s'", result.Output)
 		}
 	})
 
@@ -201,57 +193,6 @@ func TestMockRunner_Run(t *testing.T) {
 		if mock.Calls[0].SystemPrompt != "You are a helpful assistant" {
 			t.Errorf("expected SystemPrompt='You are a helpful assistant', got '%s'", mock.Calls[0].SystemPrompt)
 		}
-	})
-}
-
-func TestDefaultRunner(t *testing.T) {
-	t.Run("DefaultRunner is ProviderRunner by default", func(t *testing.T) {
-		ResetRunner()
-		_, ok := DefaultRunner.(*ProviderRunner)
-		if !ok {
-			t.Error("expected DefaultRunner to be *ProviderRunner")
-		}
-	})
-
-	t.Run("SetRunner changes DefaultRunner", func(t *testing.T) {
-		mock := NewMockRunner(&RunResult{Output: "mock"})
-		SetRunner(mock)
-
-		_, ok := DefaultRunner.(*MockRunner)
-		if !ok {
-			t.Error("expected DefaultRunner to be *MockRunner after SetRunner")
-		}
-
-		// Clean up
-		ResetRunner()
-	})
-
-	t.Run("ResetRunner restores ProviderRunner", func(t *testing.T) {
-		mock := NewMockRunner(&RunResult{Output: "mock"})
-		SetRunner(mock)
-		ResetRunner()
-
-		_, ok := DefaultRunner.(*ProviderRunner)
-		if !ok {
-			t.Error("expected DefaultRunner to be *ProviderRunner after ResetRunner")
-		}
-	})
-
-	t.Run("SetProvider changes provider", func(t *testing.T) {
-		ResetRunner()
-		openCodeProvider := provider.NewOpenCodeProvider()
-		SetProvider(openCodeProvider)
-
-		p := GetProvider()
-		if p == nil {
-			t.Fatal("expected provider to be set")
-		}
-		if p.Type() != provider.TypeOpenCode {
-			t.Errorf("expected provider type OpenCode, got %s", p.Type())
-		}
-
-		// Clean up
-		ResetRunner()
 	})
 }
 

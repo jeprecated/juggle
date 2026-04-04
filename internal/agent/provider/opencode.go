@@ -143,9 +143,6 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		result.Error = fmt.Errorf("opencode exited with error: %w", err)
 	}
 
-	// Parse signals - same format as Claude since the prompt instructs the LLM
-	parseSignals(result)
-
 	// Parse rate limits with OpenCode-specific patterns
 	o.parseRateLimit(result)
 

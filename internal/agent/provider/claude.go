@@ -178,8 +178,8 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		result.Error = fmt.Errorf("claude exited with error: %w", err)
 	}
 
-	// Parse completion signals from output
-	parseSignals(result)
+	// Parse rate limit indicators from output
+	parseRateLimit(result)
 
 	return result, nil
 }
@@ -257,49 +257,6 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	}
 
 	return result, nil
-}
-
-// parseSignals checks the output for COMPLETE/CONTINUE/BLOCKED signals
-func parseSignals(result *RunResult) {
-	// Check for COMPLETE signal (with optional commit message)
-	// Format: <promise>COMPLETE</promise> or <promise>COMPLETE: commit message</promise>
-	if idx := strings.Index(result.Output, "<promise>COMPLETE"); idx != -1 {
-		endIdx := strings.Index(result.Output[idx:], "</promise>")
-		if endIdx != -1 {
-			result.Complete = true
-			content := result.Output[idx+len("<promise>COMPLETE"):idx+endIdx]
-			if strings.HasPrefix(content, ":") {
-				result.CommitMessage = strings.TrimSpace(content[1:])
-			}
-		}
-	}
-
-	// Check for CONTINUE signal (with optional commit message)
-	// Format: <promise>CONTINUE</promise> or <promise>CONTINUE: commit message</promise>
-	if idx := strings.Index(result.Output, "<promise>CONTINUE"); idx != -1 {
-		endIdx := strings.Index(result.Output[idx:], "</promise>")
-		if endIdx != -1 {
-			result.Continue = true
-			content := result.Output[idx+len("<promise>CONTINUE"):idx+endIdx]
-			if strings.HasPrefix(content, ":") {
-				result.CommitMessage = strings.TrimSpace(content[1:])
-			}
-		}
-	}
-
-	// Check for BLOCKED signal
-	// Format: <promise>BLOCKED: reason</promise>
-	if idx := strings.Index(result.Output, "<promise>BLOCKED:"); idx != -1 {
-		endIdx := strings.Index(result.Output[idx:], "</promise>")
-		if endIdx != -1 {
-			reason := strings.TrimSpace(result.Output[idx+len("<promise>BLOCKED:") : idx+endIdx])
-			result.Blocked = true
-			result.BlockedReason = reason
-		}
-	}
-
-	// Check for rate limit indicators
-	parseRateLimit(result)
 }
 
 // parseRateLimit detects rate limit errors and extracts retry-after time if available

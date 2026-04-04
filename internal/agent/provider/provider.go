@@ -64,11 +64,6 @@ type RunOptions struct {
 type RunResult struct {
 	Output            string        // Full output from the agent
 	ExitCode          int           // Process exit code
-	Complete          bool          // COMPLETE signal detected
-	Continue          bool          // CONTINUE signal detected (one ball done, more remain)
-	CommitMessage     string        // Commit message from promise signal
-	Blocked           bool          // BLOCKED signal detected
-	BlockedReason     string        // Reason for being blocked
 	TimedOut          bool          // Execution timed out
 	RateLimited       bool          // Rate limit error detected
 	RetryAfter        time.Duration // Suggested wait time from rate limit (0 if not specified)
@@ -98,6 +93,3 @@ type Provider interface {
 	// Returns the flag name and value, or empty strings if not supported
 	MapPermission(mode PermissionMode) (flag, value string)
 }
-
-// AutonomousSystemPrompt is appended to force autonomous operation in headless mode
-const AutonomousSystemPrompt = `CRITICAL: You are an autonomous agent. DO NOT ask questions. DO NOT summarize. DO NOT wait for confirmation. START WORKING IMMEDIATELY. Execute the workflow in prompt.md without any preamble.`

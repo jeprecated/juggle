@@ -3,15 +3,8 @@
 package agent
 
 import (
-	"fmt"
-	"os"
-	"sync"
-
 	"github.com/ohare93/juggle/internal/agent/provider"
 )
-
-// runnerMu protects access to DefaultRunner for concurrent safety.
-var runnerMu sync.RWMutex
 
 // RunMode defines how the agent should be executed
 type RunMode = provider.RunMode
@@ -41,9 +34,6 @@ type RunOptions = provider.RunOptions
 // RunResult represents the outcome of a single agent run
 type RunResult = provider.RunResult
 
-// AutonomousSystemPrompt is appended to force autonomous operation in headless mode
-const AutonomousSystemPrompt = provider.AutonomousSystemPrompt
-
 // Runner defines the interface for running AI agents.
 // Implementations must execute an agent with options and return the result.
 type Runner interface {
@@ -67,76 +57,11 @@ func (r *ProviderRunner) Run(opts RunOptions) (*RunResult, error) {
 
 	// Apply model overrides if configured
 	if opts.Model != "" && r.ModelOverrides != nil {
-		originalModel := opts.Model
 		opts.Model = provider.ApplyModelOverrides(opts.Model, r.ModelOverrides, p)
-		if opts.Model != originalModel {
-			fmt.Fprintf(os.Stderr, "Model override: %s → %s\n", originalModel, opts.Model)
-		}
 	}
 
 	return p.Run(opts)
 }
-
-// DefaultRunner is the package-level runner used for agent operations.
-// It uses Claude by default but can be configured to use other providers.
-var DefaultRunner Runner = &ProviderRunner{
-	Provider: provider.NewClaudeProvider(),
-}
-
-// SetRunner sets the package-level runner (for testing).
-// This function is goroutine-safe.
-func SetRunner(r Runner) {
-	runnerMu.Lock()
-	defer runnerMu.Unlock()
-	DefaultRunner = r
-}
-
-// ResetRunner resets the runner to the default Claude provider.
-// This function is goroutine-safe.
-func ResetRunner() {
-	runnerMu.Lock()
-	defer runnerMu.Unlock()
-	DefaultRunner = &ProviderRunner{
-		Provider: provider.NewClaudeProvider(),
-	}
-}
-
-// SetProvider sets the provider for the default runner.
-// This is used to switch between Claude and OpenCode at runtime.
-// This function is goroutine-safe.
-func SetProvider(p provider.Provider) {
-	runnerMu.Lock()
-	defer runnerMu.Unlock()
-	if pr, ok := DefaultRunner.(*ProviderRunner); ok {
-		pr.Provider = p
-	}
-}
-
-// SetModelOverrides sets the model overrides for the default runner.
-// This function is goroutine-safe.
-func SetModelOverrides(overrides map[string]string) {
-	runnerMu.Lock()
-	defer runnerMu.Unlock()
-	if pr, ok := DefaultRunner.(*ProviderRunner); ok {
-		pr.ModelOverrides = overrides
-	}
-}
-
-// GetProvider returns the current provider from the default runner.
-// Returns nil if the default runner is not a ProviderRunner.
-// This function is goroutine-safe.
-func GetProvider() provider.Provider {
-	runnerMu.RLock()
-	defer runnerMu.RUnlock()
-	if pr, ok := DefaultRunner.(*ProviderRunner); ok {
-		return pr.Provider
-	}
-	return nil
-}
-
-// ClaudeRunner is an alias for backward compatibility.
-// Use ProviderRunner with provider.NewClaudeProvider() instead.
-type ClaudeRunner = ProviderRunner
 
 // MockRunner is a test implementation of Runner
 type MockRunner struct {
@@ -161,11 +86,10 @@ func (m *MockRunner) Run(opts RunOptions) (*RunResult, error) {
 	m.Calls = append(m.Calls, opts)
 
 	if m.NextIndex >= len(m.Responses) {
-		// Return a default blocked result if no more responses queued
+		// Return a default error result if no more responses queued
 		return &RunResult{
-			Output:        "No more mock responses",
-			Blocked:       true,
-			BlockedReason: "MockRunner exhausted",
+			Output:   "No more mock responses",
+			ExitCode: 1,
 		}, nil
 	}
 
