@@ -98,6 +98,7 @@ type Config struct {
 	Retries           int           // Max retries for OnFailureRetry mode (0 = default 2)
 	RetryBackoffs     []time.Duration // Override retry backoffs for testing (nil = use defaults)
 	PassthroughArgs   []string      // Extra flags passed verbatim to the agent CLI after juggle's own flags
+	AgentCmd          string        // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -208,6 +209,7 @@ var flags struct {
 	mcpConfig       string
 	onFailure       string
 	retries         int
+	agentCmd        string
 }
 
 func init() {
@@ -245,6 +247,7 @@ func init() {
 	f.StringVar(&flags.mcpConfig, "mcp-config", "", "path to MCP server config file")
 	f.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
 	f.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
+	f.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -408,10 +411,24 @@ func run(cmd *cobra.Command, args []string) error {
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
 		PassthroughArgs:   passthroughArgs,
+		AgentCmd:          flags.agentCmd,
+	}
+
+	// --agent-cmd auto-sets --provider custom
+	if cfg.AgentCmd != "" && cfg.Provider == "claude" {
+		cfg.Provider = "custom"
 	}
 
 	// Build runner from provider flag
-	p := provider.Get(provider.Type(cfg.Provider))
+	var p provider.Provider
+	if provider.Type(cfg.Provider) == provider.TypeCustom {
+		if cfg.AgentCmd == "" {
+			return fmt.Errorf("--provider custom requires --agent-cmd")
+		}
+		p = provider.GetCustom(cfg.AgentCmd)
+	} else {
+		p = provider.Get(provider.Type(cfg.Provider))
+	}
 	cfg.Runner = &agent.ProviderRunner{Provider: p}
 
 	// Set up signal handling: first signal = graceful shutdown, second = force kill

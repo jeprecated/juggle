@@ -49,7 +49,8 @@ func IsAvailable(p Type) bool {
 	return err == nil
 }
 
-// BinaryName returns the executable name for a provider
+// BinaryName returns the executable name for a provider.
+// TypeCustom returns "" because the binary is user-defined via --agent-cmd.
 func BinaryName(p Type) string {
 	switch p {
 	case TypeClaude:
@@ -63,18 +64,26 @@ func BinaryName(p Type) string {
 	}
 }
 
-// Get returns the appropriate provider implementation for the given type
+// Get returns the appropriate provider implementation for the given type.
+// For TypeCustom, use GetCustom to supply the agent command template.
 func Get(providerType Type) Provider {
 	switch providerType {
 	case TypeOpenCode:
 		return NewOpenCodeProvider()
 	case TypeCodex:
 		return NewCodexProvider()
+	case TypeCustom:
+		return NewCustomProvider("")
 	case TypeClaude:
 		fallthrough
 	default:
 		return NewClaudeProvider()
 	}
+}
+
+// GetCustom returns a CustomProvider with the given command template.
+func GetCustom(agentCmd string) Provider {
+	return NewCustomProvider(agentCmd)
 }
 
 // GetWithDetection returns a provider using the detection logic
@@ -106,5 +115,6 @@ func ValidProviders() []string {
 		string(TypeClaude),
 		string(TypeOpenCode),
 		string(TypeCodex),
+		string(TypeCustom),
 	}
 }

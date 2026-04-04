@@ -17,6 +17,8 @@ const (
 	TypeOpenCode Type = "opencode"
 	// TypeCodex is the OpenAI Codex CLI provider
 	TypeCodex Type = "codex"
+	// TypeCustom is a user-defined agent CLI provider
+	TypeCustom Type = "custom"
 )
 
 // String returns the string representation
@@ -26,7 +28,7 @@ func (p Type) String() string {
 
 // IsValid returns true if the provider type is known
 func (p Type) IsValid() bool {
-	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex
+	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex || p == TypeCustom
 }
 
 // RunMode defines how the agent should be executed

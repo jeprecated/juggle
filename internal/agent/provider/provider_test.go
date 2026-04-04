@@ -262,8 +262,8 @@ func TestGet(t *testing.T) {
 
 func TestValidProviders(t *testing.T) {
 	providers := ValidProviders()
-	if len(providers) != 3 {
-		t.Fatalf("expected 3 providers, got %d", len(providers))
+	if len(providers) != 4 {
+		t.Fatalf("expected 4 providers, got %d", len(providers))
 	}
 
 	// Check all providers are present
@@ -280,6 +280,9 @@ func TestValidProviders(t *testing.T) {
 	}
 	if !found["codex"] {
 		t.Error("expected 'codex' in valid providers")
+	}
+	if !found["custom"] {
+		t.Error("expected 'custom' in valid providers")
 	}
 }
 
