@@ -98,6 +98,9 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), opts.Env...)
+	}
 
 	var outputBuf strings.Builder
 
@@ -191,6 +194,9 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	cmd := exec.CommandContext(ctx, "opencode", args...)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
+	}
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), opts.Env...)
 	}
 
 	// Inherit terminal for full TUI

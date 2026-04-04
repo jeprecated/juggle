@@ -113,6 +113,9 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
 	}
+	if len(opts.Env) > 0 {
+		cmd.Env = append(os.Environ(), opts.Env...)
+	}
 
 	var outputBuf strings.Builder
 

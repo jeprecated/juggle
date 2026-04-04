@@ -105,6 +105,14 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 	const maxBackoff = 10 * time.Minute
 	backoff := initialBackoff
 
+	// Run agent-pre once before the task loop (failure stops the task)
+	if cfg.AgentPre != "" {
+		env := phaseEnv{phase: "pre", iteration: 0, maxIter: max}
+		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-pre failed: %w", err)
+		}
+	}
+
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown flag before starting each new iteration
 		select {
@@ -114,6 +122,15 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		}
 
 		formatter.IterationHeader(i, max, filename)
+
+		// Run agent-before; skip iteration on failure
+		if cfg.AgentBefore != "" {
+			env := phaseEnv{phase: "before", iteration: i, maxIter: max}
+			if err := runPhaseAgent(cfg, cfg.AgentBefore, env, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "agent-before failed (skipping iteration %d): %v\n", i, err)
+				continue
+			}
+		}
 
 		// Run cmd-before; skip iteration on failure
 		if cfg.CmdBefore != "" {
@@ -198,6 +215,14 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		}
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
+		// Run agent-after; log warning on failure but continue
+		if cfg.AgentAfter != "" {
+			env := phaseEnv{phase: "after", iteration: i, maxIter: max}
+			if err := runPhaseAgent(cfg, cfg.AgentAfter, env, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "agent-after failed (iteration %d): %v\n", i, err)
+			}
+		}
+
 		// Run cmd-after; log warning on failure but continue
 		if cfg.CmdAfter != "" {
 			afterEnv := hookEnv{
@@ -223,6 +248,14 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 					return ErrInterrupted
 				}
 			}
+		}
+	}
+
+	// Run agent-post once after the task loop (failure stops the task)
+	if cfg.AgentPost != "" {
+		env := phaseEnv{phase: "post", iteration: 0, maxIter: max}
+		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-post failed: %w", err)
 		}
 	}
 

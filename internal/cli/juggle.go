@@ -48,6 +48,10 @@ type Config struct {
 	MaxFailures  int           // Stop after N consecutive non-zero exits (0 = disabled)
 	CmdBefore    string        // Shell command to run before each iteration
 	CmdAfter     string        // Shell command to run after each iteration
+	AgentPre     string        // Agent session prompt to run once before the loop
+	AgentBefore  string        // Agent session prompt to run before each iteration
+	AgentAfter   string        // Agent session prompt to run after each iteration
+	AgentPost    string        // Agent session prompt to run once after the loop
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -106,6 +110,10 @@ var flags struct {
 	maxFailures  int
 	cmdBefore    string
 	cmdAfter     string
+	agentPre     []string
+	agentBefore  []string
+	agentAfter   []string
+	agentPost    []string
 }
 
 func init() {
@@ -126,6 +134,10 @@ func init() {
 	f.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
 	f.StringVar(&flags.cmdBefore, "cmd-before", "", "shell command to run before each iteration")
 	f.StringVar(&flags.cmdAfter, "cmd-after", "", "shell command to run after each iteration")
+	f.StringSliceVar(&flags.agentPre, "agent-pre", nil, "agent session prompt(s) to run once before the loop (comma-separated)")
+	f.StringSliceVar(&flags.agentBefore, "agent-before", nil, "agent session prompt(s) to run before each iteration (comma-separated)")
+	f.StringSliceVar(&flags.agentAfter, "agent-after", nil, "agent session prompt(s) to run after each iteration (comma-separated)")
+	f.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -203,6 +215,23 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	agentPre, err := BuildPhaseContent(flags.agentPre)
+	if err != nil {
+		return fmt.Errorf("--agent-pre: %w", err)
+	}
+	agentBefore, err := BuildPhaseContent(flags.agentBefore)
+	if err != nil {
+		return fmt.Errorf("--agent-before: %w", err)
+	}
+	agentAfter, err := BuildPhaseContent(flags.agentAfter)
+	if err != nil {
+		return fmt.Errorf("--agent-after: %w", err)
+	}
+	agentPost, err := BuildPhaseContent(flags.agentPost)
+	if err != nil {
+		return fmt.Errorf("--agent-post: %w", err)
+	}
+
 	cfg := Config{
 		Content:      strings.Join(resolved, "\n\n"),
 		Watch:        flags.watch,
@@ -221,6 +250,10 @@ func run(cmd *cobra.Command, args []string) error {
 		MaxFailures:  flags.maxFailures,
 		CmdBefore:    flags.cmdBefore,
 		CmdAfter:     flags.cmdAfter,
+		AgentPre:     agentPre,
+		AgentBefore:  agentBefore,
+		AgentAfter:   agentAfter,
+		AgentPost:    agentPost,
 	}
 
 	// Build runner from provider flag
@@ -291,6 +324,14 @@ func RunLoop(cfg Config) error {
 	const maxBackoff = 10 * time.Minute
 	backoff := initialBackoff
 
+	// Run agent-pre once before the loop (failure stops the run)
+	if cfg.AgentPre != "" {
+		env := phaseEnv{phase: "pre", iteration: 0, maxIter: max}
+		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-pre failed: %w", err)
+		}
+	}
+
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown flag before starting each new iteration
 		select {
@@ -301,6 +342,15 @@ func RunLoop(cfg Config) error {
 		}
 
 		formatter.IterationHeader(i, max, "")
+
+		// Run agent-before; skip iteration on failure
+		if cfg.AgentBefore != "" {
+			env := phaseEnv{phase: "before", iteration: i, maxIter: max}
+			if err := runPhaseAgent(cfg, cfg.AgentBefore, env, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "agent-before failed (skipping iteration %d): %v\n", i, err)
+				continue
+			}
+		}
 
 		// Run cmd-before; skip iteration on failure
 		if cfg.CmdBefore != "" {
@@ -374,6 +424,14 @@ func RunLoop(cfg Config) error {
 		stats.cacheTokens += result.CacheTokens
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
+		// Run agent-after; log warning on failure but continue
+		if cfg.AgentAfter != "" {
+			env := phaseEnv{phase: "after", iteration: i, maxIter: max}
+			if err := runPhaseAgent(cfg, cfg.AgentAfter, env, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "agent-after failed (iteration %d): %v\n", i, err)
+			}
+		}
+
 		// Run cmd-after; log warning on failure but continue
 		if cfg.CmdAfter != "" {
 			afterEnv := hookEnv{
@@ -400,6 +458,14 @@ func RunLoop(cfg Config) error {
 					return ErrInterrupted
 				}
 			}
+		}
+	}
+
+	// Run agent-post once after the loop (failure stops the run)
+	if cfg.AgentPost != "" {
+		env := phaseEnv{phase: "post", iteration: 0, maxIter: max}
+		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-post failed: %w", err)
 		}
 	}
 

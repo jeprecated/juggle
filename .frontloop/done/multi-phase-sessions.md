@@ -59,3 +59,24 @@ Each flag is a StringSlice (comma-separated). All values are resolved via @file 
 - Reuse ResolveArgs() for @file resolution on flag values
 - Reuse Runner.Run() for phase agents — just different prompt
 - Between-iteration agents should be fast; consider a shorter default timeout
+
+## Completion Summary
+
+- Added `Env []string` field to `RunOptions` in `provider.go`, threaded through claude and opencode providers (`cmd.Env`)
+- Added `AgentPre`, `AgentBefore`, `AgentAfter`, `AgentPost string` fields to `Config`
+- Created `internal/cli/phase_agent.go` with `BuildPhaseContent()`, `phaseEnv`, and `runPhaseAgent()`
+- Wired phase agents into `RunLoop`: pre before loop, before/after each iteration, post after loop
+- Wired phase agents into `runWatchTask` with same semantics (pre/post per task file)
+- Added `--agent-pre/before/after/post` CLI flags as `StringSliceVar` in `init()`
+- Wired flag resolution in `run()` via `BuildPhaseContent()`
+- Created `internal/cli/phase_agent_test.go` with 14 tests covering all phases, failure behaviors, env vars, and multi-value merging
+
+### Files Changed
+
+- `internal/agent/provider/provider.go` (modified — Env field in RunOptions)
+- `internal/agent/provider/claude.go` (modified — pass Env to cmd)
+- `internal/agent/provider/opencode.go` (modified — pass Env to cmd, both headless and interactive)
+- `internal/cli/juggle.go` (modified — Config fields, flags, run() wiring, RunLoop phase hooks)
+- `internal/cli/watch.go` (modified — runWatchTask phase hooks)
+- `internal/cli/phase_agent.go` (new)
+- `internal/cli/phase_agent_test.go` (new)
