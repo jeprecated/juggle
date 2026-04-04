@@ -1523,6 +1523,201 @@ func runAgentRun(cmd *cobra.Command, args []string) error {
 	// Track which project directory to use (may change if session is in different project)
 	projectDir := cwd
 
+	// Validate mutual exclusivity of run modes
+	if agentManual && agentWatch != "" {
+		return fmt.Errorf("cannot use --manual with --watch (they are mutually exclusive)")
+	}
+	if agentManual || agentWatch != "" {
+		if agentBallID != "" {
+			return fmt.Errorf("cannot use --ball with --manual or --watch")
+		}
+		if agentPickBall {
+			return fmt.Errorf("cannot use --pick with --manual or --watch")
+		}
+		if len(args) > 0 {
+			return fmt.Errorf("cannot specify session argument with --manual or --watch")
+		}
+	}
+	if len(agentContexts) > 0 && !agentManual && agentWatch == "" {
+		return fmt.Errorf("--context requires --manual or --watch")
+	}
+
+	// Handle manual mode or watch mode
+	if agentManual || agentWatch != "" {
+		resolvedContexts, err := resolveContexts(agentContexts)
+		if err != nil {
+			return err
+		}
+
+		iterations := agentIterations
+
+		// Handle --dry-run: generate and show the prompt, then exit
+		if agentDryRun || agentDebug {
+			var prompt string
+			var err error
+			if agentWatch != "" {
+				prompt, err = generateWatchPrompt("(task file contents will appear here at runtime)", resolvedContexts, 1)
+			} else {
+				prompt, err = generateManualPrompt(resolvedContexts, 1)
+			}
+			if err != nil {
+				return fmt.Errorf("failed to generate prompt: %w", err)
+			}
+
+			fmt.Println("=== Agent Prompt Info ===")
+			fmt.Println()
+			if agentManual {
+				fmt.Println("Mode: manual")
+			} else {
+				fmt.Printf("Mode: watch (%s)\n", agentWatch)
+			}
+			fmt.Printf("Contexts: %d\n", len(resolvedContexts))
+			fmt.Printf("Max iterations: %d\n", iterations)
+			fmt.Println()
+			fmt.Println("=== Generated Prompt ===")
+			fmt.Println()
+			fmt.Println(prompt)
+			fmt.Println()
+			fmt.Printf("=== Prompt Length: %d characters ===\n", len(prompt))
+
+			if agentDryRun {
+				fmt.Println()
+				fmt.Println("(Dry run - agent not started)")
+				return nil
+			}
+
+			fmt.Println()
+			fmt.Println("=== Starting Agent ===")
+			fmt.Println()
+		}
+
+		var iterDelay time.Duration
+		var delayMinutes, fuzz int
+		if cmd.Flags().Changed("delay") {
+			delayMinutes = agentDelay
+			if cmd.Flags().Changed("fuzz") {
+				fuzz = agentFuzz
+			}
+		} else {
+			delayMinutes, fuzz, _ = session.GetGlobalIterationDelayWithOptions(GetConfigOptions())
+			if cmd.Flags().Changed("fuzz") {
+				fuzz = agentFuzz
+			}
+		}
+		if delayMinutes > 0 {
+			iterDelay = calculateFuzzyDelay(delayMinutes, fuzz)
+		}
+
+		var sessionID string
+		if agentWatch != "" {
+			sessionID = watchSessionID(agentWatch)
+		} else {
+			sessionID = manualSessionID(resolvedContexts)
+		}
+
+		sessionStore, err := session.NewSessionStoreWithConfig(projectDir, GetStoreConfig())
+		if err != nil {
+			return fmt.Errorf("failed to initialize session store: %w", err)
+		}
+		if _, err := sessionStore.LoadSession(sessionID); err != nil {
+			desc := "manual mode session"
+			if agentWatch != "" {
+				desc = fmt.Sprintf("watch mode: %s", agentWatch)
+			}
+			if _, err := sessionStore.CreateSession(sessionID, desc); err != nil {
+				return fmt.Errorf("failed to create session: %w", err)
+			}
+		}
+
+		showThinking := false
+		if agentShowThinking == "true" {
+			showThinking = true
+		}
+
+		if agentManual {
+			fmt.Printf("Starting manual mode agent (session: %s)\n", sessionID)
+		} else {
+			fmt.Printf("Starting watch mode agent (dir: %s, session: %s)\n", agentWatch, sessionID)
+		}
+		fmt.Printf("Max iterations: %d\n", iterations)
+		if len(resolvedContexts) > 0 {
+			fmt.Printf("Contexts: %d\n", len(resolvedContexts))
+		}
+		fmt.Println()
+
+		storageID := sessionStorageID(sessionID)
+		if os.Getenv("JUGGLE_DAEMON_CHILD") == "1" {
+			os.Unsetenv("JUGGLE_DAEMON_CHILD")
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+			go func() {
+				<-sigChan
+				daemon.SendControlCommand(projectDir, storageID, daemon.CmdCancel, "signal")
+			}()
+		} else if agentDaemon {
+			logPath := filepath.Join(projectDir, ".juggle", "sessions", storageID, "agent.log")
+			if err := os.MkdirAll(filepath.Dir(logPath), 0755); err != nil {
+				return fmt.Errorf("failed to create session directory: %w", err)
+			}
+			logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			if err != nil {
+				return fmt.Errorf("failed to create log file: %w", err)
+			}
+			daemonCmd := exec.Command(os.Args[0], os.Args[1:]...)
+			daemonCmd.Env = append(os.Environ(), "JUGGLE_DAEMON_CHILD=1")
+			daemonCmd.Stdout = logFile
+			daemonCmd.Stderr = logFile
+			daemonCmd.Dir = projectDir
+			if err := daemonCmd.Start(); err != nil {
+				logFile.Close()
+				return fmt.Errorf("failed to start daemon: %w", err)
+			}
+			fmt.Printf("Agent daemon started (PID %d)\n", daemonCmd.Process.Pid)
+			fmt.Printf("Log file: %s\n", logPath)
+			logFile.Close()
+			return nil
+		}
+
+		loopConfig := AgentLoopConfig{
+			SessionID:            sessionID,
+			ProjectDir:           projectDir,
+			MaxIterations:        iterations,
+			Trust:                agentTrust,
+			IterDelay:            iterDelay,
+			Timeout:              agentTimeout,
+			MaxWait:              agentMaxWait,
+			Interactive:          agentInteractive,
+			Model:                agentModel,
+			OverloadRetryMinutes: -1,
+			Provider:             agentProvider,
+			IgnoreLock:           agentIgnoreLock,
+			DaemonMode:           agentDaemon,
+			ShowThinking:         showThinking,
+			Manual:               true,
+			WatchDir:             agentWatch,
+			Contexts:             resolvedContexts,
+		}
+
+		if agentWatch != "" {
+			return runWatchLoop(loopConfig)
+		}
+
+		result, err := RunAgentLoop(loopConfig)
+		if err != nil {
+			return err
+		}
+
+		fmt.Println()
+		fmt.Println("=== Summary ===")
+		fmt.Printf("Iterations: %d\n", result.Iterations)
+		if result.Complete {
+			fmt.Println("Status: COMPLETE")
+		} else if result.Blocked {
+			fmt.Printf("Status: BLOCKED (%s)\n", result.BlockedReason)
+		}
+		return nil
+	}
+
 	// Handle --monitor flag: start daemon if needed and open monitor TUI
 	if agentMonitor {
 		if len(args) == 0 {
