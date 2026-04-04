@@ -51,13 +51,13 @@ func RunWatch(cfg Config) error {
 		pollDelay = 30 * time.Second
 	}
 
-	stats := runStats{start: time.Now()}
+	stats := runStats{start: time.Now(), model: cfg.Model}
 
 	for {
 		// Check shutdown before starting each scan/task cycle
 		select {
 		case <-cfg.Shutdown:
-			printRunSummary(cfg.Stderr, stats)
+			writeSummary(cfg, stats)
 			return ErrInterrupted
 		default:
 		}
@@ -83,7 +83,7 @@ func RunWatch(cfg Config) error {
 
 		if err := runWatchTask(cfg, taskPath, filename, &stats); err != nil {
 			if errors.Is(err, ErrInterrupted) {
-				printRunSummary(cfg.Stderr, stats)
+				writeSummary(cfg, stats)
 				return ErrInterrupted
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)

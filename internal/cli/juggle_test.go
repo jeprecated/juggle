@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -610,4 +612,131 @@ func TestComputeDelay(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestPrintRunSummary_IncludesCost(t *testing.T) {
+	var buf bytes.Buffer
+	stats := runStats{
+		iterations:   2,
+		inputTokens:  1000,
+		outputTokens: 500,
+		start:        time.Now().Add(-5 * time.Second),
+		model:        "sonnet",
+	}
+	printRunSummary(&buf, stats)
+	output := buf.String()
+	if !strings.Contains(output, "$") {
+		t.Errorf("expected cost estimate (with $) in summary, got: %s", output)
+	}
+}
+
+func TestRunLoop_PrintsSummaryOnCleanCompletion(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "done1"},
+		&agent.RunResult{Output: "done2"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 2,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Run summary") {
+		t.Errorf("expected 'Run summary' in stderr on clean completion, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_StopWhenPrintsSummary(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "done"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 10,
+		Runner:     mock,
+		Stderr:     &stderr,
+		StopWhen:   "true",
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Run summary") {
+		t.Errorf("expected 'Run summary' in stderr on stop-when, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_NoSummaryOnError(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:     "test",
+		Iterations:  10,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &stderr,
+	}
+	err := RunLoop(cfg)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(stderr.String(), "Run summary") {
+		t.Errorf("expected no 'Run summary' on error exit, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_SummaryAccumulatesTokens(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: 100, OutputTokens: 50, CacheTokens: 20},
+		&agent.RunResult{InputTokens: 200, OutputTokens: 100, CacheTokens: 40},
+		&agent.RunResult{InputTokens: 300, OutputTokens: 150, CacheTokens: 60},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 3,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := stderr.String()
+	if !strings.Contains(output, "600 in") {
+		t.Errorf("expected '600 in' (accumulated input tokens) in summary, got: %s", output)
+	}
+	if !strings.Contains(output, "300 out") {
+		t.Errorf("expected '300 out' (accumulated output tokens) in summary, got: %s", output)
+	}
+}
+
+func TestRunLoop_LogFileWritesSummary(t *testing.T) {
+	logFile := filepath.Join(t.TempDir(), "juggle.log")
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "done"})
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		Runner:     mock,
+		Stderr:     &stderr,
+		Log:        logFile,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	contents, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatalf("log file not created: %v", err)
+	}
+	if !strings.Contains(string(contents), "Run summary") {
+		t.Errorf("expected 'Run summary' in log file, got: %s", contents)
+	}
 }

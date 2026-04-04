@@ -54,6 +54,7 @@ type Config struct {
 	AgentAfter   string        // Agent session prompt to run after each iteration
 	AgentPost         string        // Agent session prompt to run once after the loop
 	HooksSettingsFile string        // path to temp hooks settings JSON file (Claude-specific)
+	Log               string        // Path to log file (summary appended on completion)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -74,9 +75,32 @@ type runStats struct {
 	outputTokens int
 	cacheTokens  int
 	start        time.Time
+	model        string
 }
 
-// printRunSummary writes a summary line to w after a signal-interrupted run.
+// modelPricing holds per-token cost in USD per million tokens.
+type modelPricing struct {
+	inputPerMTok  float64
+	outputPerMTok float64
+}
+
+// defaultPricing maps canonical model names to pricing (USD per million tokens).
+var defaultPricing = map[string]modelPricing{
+	"opus":   {inputPerMTok: 15.0, outputPerMTok: 75.0},
+	"sonnet": {inputPerMTok: 3.0, outputPerMTok: 15.0},
+	"haiku":  {inputPerMTok: 0.80, outputPerMTok: 4.0},
+}
+
+// estimateCost returns the estimated USD cost for the given token counts and model.
+func estimateCost(inputTokens, outputTokens int, model string) float64 {
+	p, ok := defaultPricing[model]
+	if !ok {
+		p = defaultPricing["sonnet"] // sensible default
+	}
+	return (float64(inputTokens)*p.inputPerMTok + float64(outputTokens)*p.outputPerMTok) / 1_000_000
+}
+
+// printRunSummary writes a summary line to w.
 func printRunSummary(w io.Writer, stats runStats) {
 	elapsed := time.Since(stats.start)
 	var timing string
@@ -91,7 +115,19 @@ func printRunSummary(w io.Writer, stats runStats) {
 		tok += fmt.Sprintf(" (%d cached)", stats.cacheTokens)
 	}
 
-	fmt.Fprintf(w, "Run summary: %d iteration(s), %s, %s\n", stats.iterations, tok, timing)
+	cost := estimateCost(stats.inputTokens, stats.outputTokens, stats.model)
+	fmt.Fprintf(w, "Run summary: %d iteration(s), %s, ~$%.4f, %s\n", stats.iterations, tok, cost, timing)
+}
+
+// writeSummary prints the run summary to cfg.Stderr and, if cfg.Log is set, appends it to the log file.
+func writeSummary(cfg Config, stats runStats) {
+	printRunSummary(cfg.Stderr, stats)
+	if cfg.Log != "" {
+		if f, err := os.OpenFile(cfg.Log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
+			printRunSummary(f, stats)
+			f.Close()
+		}
+	}
 }
 
 // flags is used for cobra flag binding.
@@ -119,6 +155,7 @@ var flags struct {
 	agentPost    []string
 	hooks        []string
 	hooksFile    string
+	log          string
 }
 
 func init() {
@@ -146,6 +183,7 @@ func init() {
 	f.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
 	f.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
 	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
+	f.StringVar(&flags.log, "log", "", "append run summary to this file on completion")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -270,6 +308,7 @@ func run(cmd *cobra.Command, args []string) error {
 		AgentAfter:   agentAfter,
 		AgentPost:         agentPost,
 		HooksSettingsFile: hooksSettingsFile,
+		Log:               flags.log,
 	}
 
 	// Build runner from provider flag
@@ -332,7 +371,7 @@ func RunLoop(cfg Config) error {
 
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
-	stats := runStats{start: time.Now()}
+	stats := runStats{start: time.Now(), model: cfg.Model}
 	consecutiveFailures := 0
 
 	// Rate limit backoff state
@@ -352,7 +391,7 @@ func RunLoop(cfg Config) error {
 		// Check shutdown flag before starting each new iteration
 		select {
 		case <-cfg.Shutdown:
-			printRunSummary(cfg.Stderr, stats)
+			writeSummary(cfg, stats)
 			return ErrInterrupted
 		default:
 		}
@@ -422,7 +461,7 @@ func RunLoop(cfg Config) error {
 			select {
 			case <-time.After(wait):
 			case <-cfg.Shutdown:
-				printRunSummary(cfg.Stderr, stats)
+				writeSummary(cfg, stats)
 				return ErrInterrupted
 			}
 
@@ -447,7 +486,7 @@ func RunLoop(cfg Config) error {
 			select {
 			case <-time.After(wait):
 			case <-cfg.Shutdown:
-				printRunSummary(cfg.Stderr, stats)
+				writeSummary(cfg, stats)
 				return ErrInterrupted
 			}
 
@@ -513,6 +552,7 @@ func RunLoop(cfg Config) error {
 			}
 			if err := runHook(cfg.StopWhen, stopEnv, cfg.Stderr); err == nil {
 				fmt.Fprintf(cfg.Stderr, "stop-when condition met after iteration %d, stopping\n", i)
+				writeSummary(cfg, stats)
 				return nil
 			}
 		}
@@ -525,7 +565,7 @@ func RunLoop(cfg Config) error {
 				select {
 				case <-time.After(d):
 				case <-cfg.Shutdown:
-					printRunSummary(cfg.Stderr, stats)
+					writeSummary(cfg, stats)
 					return ErrInterrupted
 				}
 			}
@@ -540,6 +580,7 @@ func RunLoop(cfg Config) error {
 		}
 	}
 
+	writeSummary(cfg, stats)
 	return nil
 }
 
