@@ -576,5 +576,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		MCPConfig:         cfg.MCPConfig,
 		PassthroughArgs:   cfg.PassthroughArgs,
 		SystemPrompt:      cfg.SystemPrompt,
+		WorkingDir:        cfg.WorkDir,
 	}
 }

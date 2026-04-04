@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -101,6 +102,7 @@ type Config struct {
 	AgentCmd          string        // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
 	SystemPrompt      string        // Optional system prompt appended to the agent's system prompt
 	Workers           int           // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
+	WorkDir           string        // Working directory for agent spawning (empty = juggle's cwd)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -214,6 +216,7 @@ var flags struct {
 	agentCmd        string
 	systemPrompt    string
 	workers         int
+	workdir         string
 }
 
 func init() {
@@ -254,6 +257,7 @@ func init() {
 	f.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
 	f.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
 	f.IntVar(&flags.workers, "workers", 1, "number of concurrent watch workers (requires --watch)")
+	f.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -444,6 +448,7 @@ func run(cmd *cobra.Command, args []string) error {
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
 		Workers:           flags.workers,
+		WorkDir:           flags.workdir,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -511,6 +516,17 @@ func Run(cfg Config) error {
 
 	if cfg.Workers > 1 && cfg.Watch == "" {
 		return fmt.Errorf("--workers requires --watch")
+	}
+
+	if cfg.WorkDir != "" {
+		if _, err := os.Stat(cfg.WorkDir); err != nil {
+			return fmt.Errorf("--workdir: %w", err)
+		}
+	}
+
+	// Resolve relative watch path against workdir
+	if cfg.Watch != "" && cfg.WorkDir != "" && !filepath.IsAbs(cfg.Watch) {
+		cfg.Watch = filepath.Join(cfg.WorkDir, cfg.Watch)
 	}
 
 	switch cfg.OnFailure {

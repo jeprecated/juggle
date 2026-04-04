@@ -338,6 +338,14 @@ func TestBuildRunOptions_SystemPrompt(t *testing.T) {
 	}
 }
 
+func TestBuildRunOptions_WorkDir(t *testing.T) {
+	cfg := Config{WorkDir: "/some/dir"}
+	opts := buildRunOptions(cfg, "prompt")
+	if opts.WorkingDir != "/some/dir" {
+		t.Errorf("expected WorkingDir=/some/dir, got %q", opts.WorkingDir)
+	}
+}
+
 func TestBuildRunOptions_PassthroughArgs(t *testing.T) {
 	cfg := Config{PassthroughArgs: []string{"--max-turns", "50", "--allowedTools", "Bash"}}
 	opts := buildRunOptions(cfg, "prompt")
@@ -748,5 +756,78 @@ func TestRunWatchWorkers_NoDuplicateTaskSelection(t *testing.T) {
 	}
 	if totalCalls < 1 {
 		t.Error("expected at least one Run call")
+	}
+}
+
+func TestRun_WatchRelativeToWorkDir(t *testing.T) {
+	workdir := t.TempDir()
+	watchSubdir := "tasks"
+	watchFull := filepath.Join(workdir, watchSubdir)
+	if err := os.Mkdir(watchFull, 0755); err != nil {
+		t.Fatal(err)
+	}
+	// Add a task file so the watcher has something to process
+	taskPath := filepath.Join(watchFull, "task.md")
+	os.WriteFile(taskPath, []byte("do work"), 0644)
+
+	shutdown := make(chan struct{})
+	callCount := 0
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		callCount++
+		os.Remove(taskPath) // remove so watcher exits
+		close(shutdown)
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Content:    "instructions",
+		Watch:      watchSubdir, // relative
+		WorkDir:    workdir,
+		Iterations: 1,
+		Runner:     runner,
+		Stderr:     &bytes.Buffer{},
+		Shutdown:   shutdown,
+	}
+
+	err := Run(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount == 0 {
+		t.Error("expected at least one Run call (watch subdir not resolved correctly)")
+	}
+}
+
+func TestRun_WatchAbsoluteNotChangedByWorkDir(t *testing.T) {
+	workdir := t.TempDir()
+	watchdir := t.TempDir() // separate absolute path
+	taskPath := filepath.Join(watchdir, "task.md")
+	os.WriteFile(taskPath, []byte("do work"), 0644)
+
+	shutdown := make(chan struct{})
+	callCount := 0
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		callCount++
+		os.Remove(taskPath)
+		close(shutdown)
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Content:    "instructions",
+		Watch:      watchdir, // absolute — should not be joined to workdir
+		WorkDir:    workdir,
+		Iterations: 1,
+		Runner:     runner,
+		Stderr:     &bytes.Buffer{},
+		Shutdown:   shutdown,
+	}
+
+	err := Run(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount == 0 {
+		t.Error("expected at least one Run call (absolute watch path should work with workdir)")
 	}
 }

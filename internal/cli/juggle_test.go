@@ -97,6 +97,44 @@ func TestRun_DryRun(t *testing.T) {
 	}
 }
 
+func TestRun_WorkDirNotExist(t *testing.T) {
+	cfg := Config{
+		Content:  "do work",
+		WorkDir:  "/nonexistent/path/that/does/not/exist",
+		Stderr:   &bytes.Buffer{},
+		Runner:   agent.NewMockRunner(&agent.RunResult{}),
+	}
+	err := Run(cfg)
+	if err == nil {
+		t.Fatal("expected error for non-existent workdir")
+	}
+	if !strings.Contains(err.Error(), "workdir") {
+		t.Errorf("error should mention 'workdir', got: %v", err)
+	}
+}
+
+func TestRun_WorkDirSetsAgentWorkingDir(t *testing.T) {
+	dir := t.TempDir()
+	var capturedOpts agent.RunOptions
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		capturedOpts = opts
+		return &agent.RunResult{}, nil
+	}}
+	cfg := Config{
+		Content:    "do work",
+		Iterations: 1,
+		WorkDir:    dir,
+		Runner:     runner,
+		Stderr:     &bytes.Buffer{},
+	}
+	if err := Run(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedOpts.WorkingDir != dir {
+		t.Errorf("expected WorkingDir=%q, got %q", dir, capturedOpts.WorkingDir)
+	}
+}
+
 func TestRunLoop_Iterations(t *testing.T) {
 	mock := agent.NewMockRunner(
 		&agent.RunResult{Output: "done1"},

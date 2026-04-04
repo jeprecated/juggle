@@ -21,3 +21,19 @@ Add `--workdir path/to/repo` so juggle spawns the agent with that directory as i
 
 - WorkingDir field already exists on RunOptions — just need to wire the flag through
 - Set cmd.Dir in provider Run() implementations
+
+## Completion Summary
+
+- Added `WorkDir string` field to `Config` struct
+- Added `workdir string` to `flags` struct and registered `--workdir` cobra flag
+- Wired `flags.workdir` into `cfg.WorkDir` in the `run()` cobra handler
+- Added validation in `Run()`: errors if WorkDir is set but directory doesn't exist
+- Added relative watch path resolution in `Run()`: if `--watch` is relative and `--workdir` is set, joins them
+- Wired `cfg.WorkDir` → `RunOptions.WorkingDir` in `buildRunOptions()` (providers already set `cmd.Dir` from this field)
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/watch.go` (modified)
+- `internal/cli/juggle_test.go` (modified)
+- `internal/cli/watch_test.go` (modified)
