@@ -10,6 +10,12 @@ Minimal agent loop runner. Takes prompt content, runs an AI agent in a loop, sto
 brew tap ohare93/tap && brew install juggle
 ```
 
+**Windows (Scoop):**
+
+```bash
+scoop bucket add ohare93 https://github.com/ohare93/scoop && scoop install juggle
+```
+
 **Linux:**
 
 ```bash

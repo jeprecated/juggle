@@ -56,7 +56,7 @@ The generated settings follow this structure:
   "permissions": {
     "allow": ["Bash(detected-tools:*)"],
     "deny": ["Read(./.env)", "Read(./secrets/**)"],
-    "ask": ["Bash(juggle agent:*)", "Bash(git push:*)"]
+    "ask": ["Bash(juggle:*)", "Bash(git push:*)"]
   },
   "hooks": { ... }
 }
