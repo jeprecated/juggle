@@ -5,9 +5,11 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
 )
@@ -100,7 +102,64 @@ func generateWatchPrompt(taskContents string, contexts []string, iteration int) 
 	return buf.String(), nil
 }
 
-// runWatchLoop processes task files from a directory. Implemented in Task 7.
+// runWatchLoop processes task files from a watched directory.
+// For each file (alphabetical order), reads contents as the task,
+// runs a sub-loop until COMPLETE or BLOCKED, then picks the next file.
+// Idles when empty, polling at configured delay interval.
 func runWatchLoop(config AgentLoopConfig) error {
-	return fmt.Errorf("watch mode not yet implemented")
+	dir := config.WatchDir
+
+	info, err := os.Stat(dir)
+	if err != nil {
+		return fmt.Errorf("watch directory %s: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("watch path %s is not a directory", dir)
+	}
+
+	pollDelay := config.IterDelay
+	if pollDelay == 0 {
+		pollDelay = 30 * time.Second
+	}
+
+	for {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("failed to read watch directory: %w", err)
+		}
+
+		// Pick first regular file (ReadDir returns sorted)
+		var taskFile string
+		for _, e := range entries {
+			if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+				taskFile = filepath.Join(dir, e.Name())
+				break
+			}
+		}
+
+		if taskFile == "" {
+			fmt.Printf("⏳ Watch directory empty, polling in %v...\n", pollDelay.Round(time.Second))
+			time.Sleep(pollDelay)
+			continue
+		}
+
+		fmt.Printf("📋 Processing task: %s\n\n", filepath.Base(taskFile))
+
+		subConfig := config
+		subConfig.Manual = true
+		subConfig.WatchTaskFile = taskFile
+
+		result, err := RunAgentLoop(subConfig)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️  Error processing %s: %v\n", filepath.Base(taskFile), err)
+		}
+
+		if result != nil {
+			if result.Complete {
+				fmt.Printf("✅ Task complete: %s\n\n", filepath.Base(taskFile))
+			} else if result.Blocked {
+				fmt.Printf("🚫 Task blocked: %s (%s)\n\n", filepath.Base(taskFile), result.BlockedReason)
+			}
+		}
+	}
 }
