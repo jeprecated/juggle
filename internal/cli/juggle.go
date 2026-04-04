@@ -82,8 +82,9 @@ var rootCmd = &cobra.Command{
 		}
 		return nil
 	},
-	RunE:         run,
-	SilenceUsage: true,
+	RunE:          run,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 // Execute runs the root command.
