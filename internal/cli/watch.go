@@ -355,5 +355,7 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		Verbose:           cfg.Verbose,
 		Context:           cfg.ForceCtx,
 		HooksSettingsFile: cfg.HooksSettingsFile,
+		AllowedTools:      cfg.AllowedTools,
+		DisallowedTools:   cfg.DisallowedTools,
 	}
 }

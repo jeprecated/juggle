@@ -61,6 +61,8 @@ type Config struct {
 	MaxCost           float64       // Stop loop when cumulative cost exceeds this (0 = disabled)
 	Label             string        // Optional run label (exposed as JUGGLE_LABEL)
 	RunID             string        // Stable UUID for the entire run (generated in Run() if empty)
+	AllowedTools      []string      // Restrict agent to these tools only (mutually exclusive with DisallowedTools)
+	DisallowedTools   []string      // Block specific tools (mutually exclusive with AllowedTools)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -159,11 +161,13 @@ var flags struct {
 	agentBefore  []string
 	agentAfter   []string
 	agentPost    []string
-	hooks        []string
-	hooksFile    string
-	log          string
-	maxCost      float64
-	label        string
+	hooks           []string
+	hooksFile       string
+	log             string
+	maxCost         float64
+	label           string
+	allowedTools    []string
+	disallowedTools []string
 }
 
 func init() {
@@ -194,6 +198,8 @@ func init() {
 	f.StringVar(&flags.log, "log", "", "append run summary to this file on completion")
 	f.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
 	f.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
+	f.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
+	f.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -321,6 +327,8 @@ func run(cmd *cobra.Command, args []string) error {
 		Log:               flags.log,
 		MaxCost:           flags.maxCost,
 		Label:             flags.label,
+		AllowedTools:      flags.allowedTools,
+		DisallowedTools:   flags.disallowedTools,
 	}
 
 	// Build runner from provider flag
@@ -363,6 +371,10 @@ func Run(cfg Config) error {
 	}
 	if cfg.RunID == "" {
 		cfg.RunID = generateRunID()
+	}
+
+	if len(cfg.AllowedTools) > 0 && len(cfg.DisallowedTools) > 0 {
+		return fmt.Errorf("--allowed-tools and --disallowed-tools are mutually exclusive")
 	}
 
 	if cfg.DryRun {

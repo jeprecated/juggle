@@ -66,6 +66,14 @@ func (o *OpenCodeProvider) Run(opts RunOptions) (*RunResult, error) {
 func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
+	// Warn if tool restriction flags were requested — OpenCode does not support them
+	if len(opts.AllowedTools) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: --allowed-tools is not supported by the opencode provider and will be ignored\n")
+	}
+	if len(opts.DisallowedTools) > 0 {
+		fmt.Fprintf(os.Stderr, "warning: --disallowed-tools is not supported by the opencode provider and will be ignored\n")
+	}
+
 	// OpenCode uses: opencode run "prompt"
 	args := []string{"run"}
 

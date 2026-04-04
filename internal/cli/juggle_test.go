@@ -855,3 +855,77 @@ func TestRunLoop_MaxCostZeroDisabled(t *testing.T) {
 		t.Errorf("expected 3 calls when MaxCost=0, got %d", len(mock.Calls))
 	}
 }
+
+func TestRun_AllowedAndDisallowedToolsBothSetError(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:         "test",
+		Iterations:      1,
+		AllowedTools:    []string{"Bash", "Read"},
+		DisallowedTools: []string{"Write"},
+		Runner:          mock,
+		Stderr:          &bytes.Buffer{},
+		Stdout:          &bytes.Buffer{},
+	}
+	err := Run(cfg)
+	if err == nil {
+		t.Fatal("expected error when both AllowedTools and DisallowedTools are set")
+	}
+	if !strings.Contains(err.Error(), "allowed-tools") || !strings.Contains(err.Error(), "disallowed-tools") {
+		t.Errorf("error should mention both flags, got: %v", err)
+	}
+}
+
+func TestRunLoop_AllowedToolsPassedToRunner(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:      "test",
+		Iterations:   1,
+		AllowedTools: []string{"Bash", "Read", "Grep"},
+		Runner:       mock,
+		Stderr:       &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) == 0 {
+		t.Fatal("no calls made")
+	}
+	call := mock.Calls[0]
+	want := []string{"Bash", "Read", "Grep"}
+	if len(call.AllowedTools) != len(want) {
+		t.Fatalf("AllowedTools = %v, want %v", call.AllowedTools, want)
+	}
+	for i, v := range want {
+		if call.AllowedTools[i] != v {
+			t.Errorf("AllowedTools[%d] = %q, want %q", i, call.AllowedTools[i], v)
+		}
+	}
+}
+
+func TestRunLoop_DisallowedToolsPassedToRunner(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:         "test",
+		Iterations:      1,
+		DisallowedTools: []string{"Write", "Edit"},
+		Runner:          mock,
+		Stderr:          &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) == 0 {
+		t.Fatal("no calls made")
+	}
+	call := mock.Calls[0]
+	want := []string{"Write", "Edit"}
+	if len(call.DisallowedTools) != len(want) {
+		t.Fatalf("DisallowedTools = %v, want %v", call.DisallowedTools, want)
+	}
+	for i, v := range want {
+		if call.DisallowedTools[i] != v {
+			t.Errorf("DisallowedTools[%d] = %q, want %q", i, call.DisallowedTools[i], v)
+		}
+	}
+}

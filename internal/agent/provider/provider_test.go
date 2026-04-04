@@ -387,6 +387,50 @@ func TestClaudeProvider_Type(t *testing.T) {
 	}
 }
 
+func TestClaudeHeadlessArgs_AllowedTools(t *testing.T) {
+	opts := RunOptions{
+		AllowedTools: []string{"Bash", "Read", "Grep"},
+	}
+	args := claudeHeadlessArgs(opts)
+	found := false
+	for i, a := range args {
+		if a == "--allowedTools" && i+1 < len(args) && args[i+1] == "Bash,Read,Grep" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected --allowedTools Bash,Read,Grep in args, got: %v", args)
+	}
+}
+
+func TestClaudeHeadlessArgs_DisallowedTools(t *testing.T) {
+	opts := RunOptions{
+		DisallowedTools: []string{"Write", "Edit"},
+	}
+	args := claudeHeadlessArgs(opts)
+	found := false
+	for i, a := range args {
+		if a == "--disallowedTools" && i+1 < len(args) && args[i+1] == "Write,Edit" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected --disallowedTools Write,Edit in args, got: %v", args)
+	}
+}
+
+func TestClaudeHeadlessArgs_NoToolsFlags_WhenEmpty(t *testing.T) {
+	opts := RunOptions{}
+	args := claudeHeadlessArgs(opts)
+	for _, a := range args {
+		if a == "--allowedTools" || a == "--disallowedTools" {
+			t.Errorf("unexpected tool restriction flag %q in args when none set: %v", a, args)
+		}
+	}
+}
+
 func TestOpenCodeProvider_Type(t *testing.T) {
 	p := NewOpenCodeProvider()
 	if p.Type() != TypeOpenCode {

@@ -77,43 +77,53 @@ func (c *ClaudeProvider) Run(opts RunOptions) (*RunResult, error) {
 	return c.runHeadless(opts)
 }
 
-// runHeadless executes Claude in headless mode (-p flag, captured output)
-func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
-	result := &RunResult{}
-
-	// Build command arguments
+// claudeHeadlessArgs builds the CLI argument list for a headless Claude invocation.
+// Extracted for testability.
+func claudeHeadlessArgs(opts RunOptions) []string {
 	args := []string{
 		"--disable-slash-commands",
 	}
 
-	// Append system prompt if provided
 	if opts.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", opts.SystemPrompt)
 	}
 
-	// Set model if provided
 	if opts.Model != "" {
-		args = append(args, "--model", c.MapModel(opts.Model))
+		p := NewClaudeProvider()
+		args = append(args, "--model", p.MapModel(opts.Model))
 	}
 
-	// Set permission mode
-	flag, value := c.MapPermission(opts.Permission)
+	p := NewClaudeProvider()
+	flag, value := p.MapPermission(opts.Permission)
 	if value != "" {
 		args = append(args, flag, value)
 	} else {
 		args = append(args, flag)
 	}
 
-	// Pass hooks settings file if configured
 	if opts.HooksSettingsFile != "" {
 		args = append(args, "--settings", opts.HooksSettingsFile)
 	}
 
-	// Always use stream-json output format (requires --verbose with -p stdin mode)
-	args = append(args, "--output-format", "stream-json", "--verbose")
+	if len(opts.AllowedTools) > 0 {
+		args = append(args, "--allowedTools", strings.Join(opts.AllowedTools, ","))
+	}
 
-	// Headless mode: read prompt from stdin
+	if len(opts.DisallowedTools) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(opts.DisallowedTools, ","))
+	}
+
+	args = append(args, "--output-format", "stream-json", "--verbose")
 	args = append(args, "-p", "-")
+
+	return args
+}
+
+// runHeadless executes Claude in headless mode (-p flag, captured output)
+func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
+	result := &RunResult{}
+
+	args := claudeHeadlessArgs(opts)
 
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context

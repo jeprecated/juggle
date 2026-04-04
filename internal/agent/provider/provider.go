@@ -63,6 +63,8 @@ type RunOptions struct {
 	Context      context.Context // optional external cancellation context (force-kill)
 	Env               []string        // additional environment variables (KEY=VALUE) passed to the subprocess
 	HooksSettingsFile string          // path to temp settings JSON for agent-internal hooks (Claude-specific)
+	AllowedTools      []string        // restrict agent to these tools only (mutually exclusive with DisallowedTools)
+	DisallowedTools   []string        // block specific tools (mutually exclusive with AllowedTools)
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)
