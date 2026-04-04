@@ -2,13 +2,33 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
 )
+
+// closeOnFirstCallRunner closes shutdown after its first Run call.
+// Used to simulate a signal arriving after one iteration completes.
+type closeOnFirstCallRunner struct {
+	shutdown chan struct{}
+	result   *agent.RunResult
+	calls    int
+	once     sync.Once
+}
+
+func (r *closeOnFirstCallRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
+	r.calls++
+	r.once.Do(func() { close(r.shutdown) })
+	if r.result != nil {
+		return r.result, nil
+	}
+	return &agent.RunResult{Output: "ok"}, nil
+}
 
 func TestBuildPrompt(t *testing.T) {
 	t.Run("includes content and footer", func(t *testing.T) {
@@ -188,6 +208,85 @@ func TestRunLoop_OverloadExhausted(t *testing.T) {
 	err := RunLoop(cfg)
 	if err == nil {
 		t.Fatal("expected error on overload")
+	}
+}
+
+func TestRunLoop_NilShutdownRunsNormally(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "ok1"},
+		&agent.RunResult{Output: "ok2"},
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 2,
+		Runner:     mock,
+		Shutdown:   nil,
+		Stderr:     &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 2 {
+		t.Errorf("expected 2 calls, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_PreClosedShutdownRunsNoIterations(t *testing.T) {
+	shutdown := make(chan struct{})
+	close(shutdown)
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:    "test",
+		Iterations: 3,
+		Runner:     mock,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected 0 calls with pre-closed shutdown, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_ShutdownPreventNextIteration(t *testing.T) {
+	shutdown := make(chan struct{})
+	runner := &closeOnFirstCallRunner{shutdown: shutdown}
+	cfg := Config{
+		Content:    "test",
+		Iterations: 5,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if runner.calls != 1 {
+		t.Errorf("expected 1 call, got %d", runner.calls)
+	}
+}
+
+func TestRunLoop_ShutdownPrintsSummary(t *testing.T) {
+	shutdown := make(chan struct{})
+	runner := &closeOnFirstCallRunner{
+		shutdown: shutdown,
+		result:   &agent.RunResult{InputTokens: 100, OutputTokens: 50},
+	}
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 5,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &stderr,
+	}
+	RunLoop(cfg)
+	if !strings.Contains(stderr.String(), "Run summary") {
+		t.Errorf("expected 'Run summary' in stderr, got: %s", stderr.String())
 	}
 }
 

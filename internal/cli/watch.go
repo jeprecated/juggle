@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -50,7 +51,17 @@ func RunWatch(cfg Config) error {
 		pollDelay = 30 * time.Second
 	}
 
+	stats := runStats{start: time.Now()}
+
 	for {
+		// Check shutdown before starting each scan/task cycle
+		select {
+		case <-cfg.Shutdown:
+			printRunSummary(cfg.Stderr, stats)
+			return ErrInterrupted
+		default:
+		}
+
 		taskPath, err := ScanWatchDir(cfg.Watch)
 		if err != nil {
 			return err
@@ -58,14 +69,23 @@ func RunWatch(cfg Config) error {
 
 		if taskPath == "" {
 			fmt.Fprintf(cfg.Stderr, "Watch directory empty, polling in %v...\n", pollDelay)
-			time.Sleep(pollDelay)
+			// Interruptible poll sleep
+			select {
+			case <-time.After(pollDelay):
+			case <-cfg.Shutdown:
+				// Handled at top of next loop iteration
+			}
 			continue
 		}
 
 		filename := filepath.Base(taskPath)
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(cfg, taskPath, filename); err != nil {
+		if err := runWatchTask(cfg, taskPath, filename, &stats); err != nil {
+			if errors.Is(err, ErrInterrupted) {
+				printRunSummary(cfg.Stderr, stats)
+				return ErrInterrupted
+			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
@@ -74,7 +94,8 @@ func RunWatch(cfg Config) error {
 
 // runWatchTask runs the iteration loop for a single watch task file.
 // Re-reads the task file each iteration to pick up agent-appended progress.
-func runWatchTask(cfg Config, taskFile, filename string) error {
+// stats is updated with completed iteration metrics (may be nil).
+func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error {
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
 
@@ -84,6 +105,13 @@ func runWatchTask(cfg Config, taskFile, filename string) error {
 	backoff := initialBackoff
 
 	for i := 1; max == 0 || i <= max; i++ {
+		// Check shutdown flag before starting each new iteration
+		select {
+		case <-cfg.Shutdown:
+			return ErrInterrupted
+		default:
+		}
+
 		formatter.IterationHeader(i, max, filename)
 		start := time.Now()
 
@@ -123,7 +151,11 @@ func runWatchTask(cfg Config, taskFile, filename string) error {
 			}
 
 			fmt.Fprintf(cfg.Stderr, "rate limited, waiting %v before retry\n", wait)
-			time.Sleep(wait)
+			select {
+			case <-time.After(wait):
+			case <-cfg.Shutdown:
+				return ErrInterrupted
+			}
 
 			// Double backoff for next time, cap at maxBackoff
 			backoff *= 2
@@ -136,16 +168,26 @@ func runWatchTask(cfg Config, taskFile, filename string) error {
 			continue
 		}
 
-		// Success: reset backoff and print status
+		// Success: reset backoff, accumulate stats, and print status
 		backoff = initialBackoff
+		if stats != nil {
+			stats.iterations++
+			stats.inputTokens += result.InputTokens
+			stats.outputTokens += result.OutputTokens
+			stats.cacheTokens += result.CacheTokens
+		}
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
-		// Wait between iterations (skip after last)
+		// Wait between iterations (skip after last), interruptible by shutdown
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
 			d := computeDelay(cfg.Delay, cfg.Fuzz)
 			if d > 0 {
 				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
-				time.Sleep(d)
+				select {
+				case <-time.After(d):
+				case <-cfg.Shutdown:
+					return ErrInterrupted
+				}
 			}
 		}
 	}
@@ -173,5 +215,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		Timeout:      cfg.Timeout,
 		ShowThinking: cfg.ShowThinking,
 		Verbose:      cfg.Verbose,
+		Context:      cfg.ForceCtx,
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -13,6 +14,9 @@ var version = "dev"
 func main() {
 	cli.SetVersion(version)
 	if err := cli.Execute(); err != nil {
+		if errors.Is(err, cli.ErrInterrupted) {
+			os.Exit(130)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

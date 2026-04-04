@@ -95,14 +95,18 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	// Headless mode: read prompt from stdin
 	args = append(args, "-p", "-")
 
-	// Create context with timeout if specified
+	// Create context with timeout if specified, using opts.Context as base if provided
+	baseCtx := opts.Context
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if opts.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), opts.Timeout)
+		ctx, cancel = context.WithTimeout(baseCtx, opts.Timeout)
 		defer cancel()
 	} else {
-		ctx = context.Background()
+		ctx = baseCtx
 	}
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
@@ -214,14 +218,18 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	// Interactive mode: pass prompt as argument
 	args = append(args, opts.Prompt)
 
-	// Create context with timeout if specified
+	// Create context with timeout if specified, using opts.Context as base if provided
+	baseCtx := opts.Context
+	if baseCtx == nil {
+		baseCtx = context.Background()
+	}
 	var ctx context.Context
 	var cancel context.CancelFunc
 	if opts.Timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), opts.Timeout)
+		ctx, cancel = context.WithTimeout(baseCtx, opts.Timeout)
 		defer cancel()
 	} else {
-		ctx = context.Background()
+		ctx = baseCtx
 	}
 
 	cmd := exec.CommandContext(ctx, "claude", args...)

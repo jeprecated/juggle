@@ -1,11 +1,16 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
@@ -17,6 +22,9 @@ var version = "dev"
 
 // SetVersion sets the version string (injected at build time).
 func SetVersion(v string) { version = v }
+
+// ErrInterrupted is returned when the run is stopped by a signal.
+var ErrInterrupted = errors.New("interrupted by signal")
 
 // Config holds all CLI configuration for a juggle run.
 type Config struct {
@@ -35,9 +43,43 @@ type Config struct {
 	ShowThinking bool          // Show thinking blocks
 	Verbose      bool          // Show tool inputs in headless output
 
+	// Shutdown is closed when the first signal arrives (graceful shutdown).
+	// A nil channel means no shutdown signaling (normal operation).
+	Shutdown <-chan struct{}
+	// ForceCtx is cancelled on the second signal to kill the child process.
+	// A nil context means no force-kill context.
+	ForceCtx context.Context
+
 	Runner agent.Runner // Injected runner (nil = build from Provider flag)
 	Stdout io.Writer
 	Stderr io.Writer
+}
+
+// runStats tracks cumulative metrics across iterations for the run summary.
+type runStats struct {
+	iterations   int
+	inputTokens  int
+	outputTokens int
+	cacheTokens  int
+	start        time.Time
+}
+
+// printRunSummary writes a summary line to w after a signal-interrupted run.
+func printRunSummary(w io.Writer, stats runStats) {
+	elapsed := time.Since(stats.start)
+	var timing string
+	if elapsed < time.Second {
+		timing = fmt.Sprintf("%dms", elapsed.Milliseconds())
+	} else {
+		timing = fmt.Sprintf("%ds", int(elapsed.Seconds()))
+	}
+
+	tok := fmt.Sprintf("%d in / %d out", stats.inputTokens, stats.outputTokens)
+	if stats.cacheTokens > 0 {
+		tok += fmt.Sprintf(" (%d cached)", stats.cacheTokens)
+	}
+
+	fmt.Fprintf(w, "Run summary: %d iteration(s), %s, %s\n", stats.iterations, tok, timing)
 }
 
 // flags is used for cobra flag binding.
@@ -144,6 +186,29 @@ func run(cmd *cobra.Command, args []string) error {
 	p := provider.Get(provider.Type(cfg.Provider))
 	cfg.Runner = &agent.ProviderRunner{Provider: p}
 
+	// Set up signal handling: first signal = graceful shutdown, second = force kill
+	shutdown := make(chan struct{})
+	var shutdownOnce sync.Once
+	forceCtx, forceCancel := context.WithCancel(context.Background())
+	defer forceCancel()
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	go func() {
+		<-sigCh
+		shutdownOnce.Do(func() { close(shutdown) })
+		<-sigCh
+		// Second signal: cancel child context then exit
+		forceCancel()
+		time.Sleep(200 * time.Millisecond)
+		os.Exit(130)
+	}()
+
+	cfg.Shutdown = shutdown
+	cfg.ForceCtx = forceCtx
+
 	return Run(cfg)
 }
 
@@ -177,6 +242,7 @@ func RunLoop(cfg Config) error {
 
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
+	stats := runStats{start: time.Now()}
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -184,6 +250,14 @@ func RunLoop(cfg Config) error {
 	backoff := initialBackoff
 
 	for i := 1; max == 0 || i <= max; i++ {
+		// Check shutdown flag before starting each new iteration
+		select {
+		case <-cfg.Shutdown:
+			printRunSummary(cfg.Stderr, stats)
+			return ErrInterrupted
+		default:
+		}
+
 		formatter.IterationHeader(i, max, "")
 		start := time.Now()
 
@@ -213,7 +287,12 @@ func RunLoop(cfg Config) error {
 			}
 
 			fmt.Fprintf(cfg.Stderr, "rate limited, waiting %v before retry\n", wait)
-			time.Sleep(wait)
+			select {
+			case <-time.After(wait):
+			case <-cfg.Shutdown:
+				printRunSummary(cfg.Stderr, stats)
+				return ErrInterrupted
+			}
 
 			// Double backoff for next time, cap at maxBackoff
 			backoff *= 2
@@ -226,16 +305,25 @@ func RunLoop(cfg Config) error {
 			continue
 		}
 
-		// Success: reset backoff and print status
+		// Success: reset backoff, accumulate stats, and print status
 		backoff = initialBackoff
+		stats.iterations++
+		stats.inputTokens += result.InputTokens
+		stats.outputTokens += result.OutputTokens
+		stats.cacheTokens += result.CacheTokens
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
-		// Wait between iterations (skip after last)
+		// Wait between iterations (skip after last), interruptible by shutdown
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
 			d := computeDelay(cfg.Delay, cfg.Fuzz)
 			if d > 0 {
 				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
-				time.Sleep(d)
+				select {
+				case <-time.After(d):
+				case <-cfg.Shutdown:
+					printRunSummary(cfg.Stderr, stats)
+					return ErrInterrupted
+				}
 			}
 		}
 	}

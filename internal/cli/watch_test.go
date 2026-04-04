@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -93,7 +94,7 @@ func TestRunWatchTask_Iterations(t *testing.T) {
 		Stderr:     &bytes.Buffer{},
 	}
 
-	err := runWatchTask(cfg, taskPath, "task.md")
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -126,7 +127,7 @@ func TestRunWatchTask_FileDeletedByAgent(t *testing.T) {
 		Stderr:     &bytes.Buffer{},
 	}
 
-	err := runWatchTask(cfg, taskPath, "task.md")
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -160,6 +161,51 @@ func TestRunWatch_NotADirectory(t *testing.T) {
 	err := RunWatch(cfg)
 	if err == nil {
 		t.Fatal("expected error for non-directory path")
+	}
+}
+
+func TestRunWatchTask_ShutdownPreventNextIteration(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	shutdown := make(chan struct{})
+	runner := &closeOnFirstCallRunner{shutdown: shutdown}
+	cfg := Config{
+		Content:    "context",
+		Iterations: 5,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if runner.calls != 1 {
+		t.Errorf("expected 1 call, got %d", runner.calls)
+	}
+}
+
+func TestRunWatch_PreClosedShutdown(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "task.md"), []byte("task"), 0644)
+
+	shutdown := make(chan struct{})
+	close(shutdown)
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Watch:    dir,
+		Runner:   mock,
+		Shutdown: shutdown,
+		Stderr:   &bytes.Buffer{},
+	}
+	err := RunWatch(cfg)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected 0 calls with pre-closed shutdown, got %d", len(mock.Calls))
 	}
 }
 
