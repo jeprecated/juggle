@@ -99,6 +99,7 @@ type Config struct {
 	RetryBackoffs     []time.Duration // Override retry backoffs for testing (nil = use defaults)
 	PassthroughArgs   []string      // Extra flags passed verbatim to the agent CLI after juggle's own flags
 	AgentCmd          string        // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
+	SystemPrompt      string        // Optional system prompt appended to the agent's system prompt
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -210,6 +211,7 @@ var flags struct {
 	onFailure       string
 	retries         int
 	agentCmd        string
+	systemPrompt    string
 }
 
 func init() {
@@ -248,6 +250,7 @@ func init() {
 	f.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
 	f.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 	f.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
+	f.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -379,6 +382,15 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--agent-post: %w", err)
 	}
 
+	var systemPrompt string
+	if flags.systemPrompt != "" {
+		resolved1, err1 := ResolveArgs([]string{flags.systemPrompt})
+		if err1 != nil {
+			return fmt.Errorf("--system-prompt: %w", err1)
+		}
+		systemPrompt = resolved1[0]
+	}
+
 	if flags.mcpConfig != "" {
 		if _, err := os.Stat(flags.mcpConfig); err != nil {
 			return fmt.Errorf("--mcp-config: file not found: %s", flags.mcpConfig)
@@ -427,6 +439,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Retries:           flags.retries,
 		PassthroughArgs:   passthroughArgs,
 		AgentCmd:          flags.agentCmd,
+		SystemPrompt:      systemPrompt,
 	}
 
 	// --agent-cmd auto-sets --provider custom

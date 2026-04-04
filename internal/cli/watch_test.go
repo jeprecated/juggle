@@ -320,6 +320,14 @@ func TestBuildRunOptions(t *testing.T) {
 	})
 }
 
+func TestBuildRunOptions_SystemPrompt(t *testing.T) {
+	cfg := Config{SystemPrompt: "You are a helpful assistant"}
+	opts := buildRunOptions(cfg, "prompt")
+	if opts.SystemPrompt != "You are a helpful assistant" {
+		t.Errorf("expected SystemPrompt='You are a helpful assistant', got %q", opts.SystemPrompt)
+	}
+}
+
 func TestBuildRunOptions_PassthroughArgs(t *testing.T) {
 	cfg := Config{PassthroughArgs: []string{"--max-turns", "50", "--allowedTools", "Bash"}}
 	opts := buildRunOptions(cfg, "prompt")

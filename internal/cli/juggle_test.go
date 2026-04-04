@@ -137,6 +137,23 @@ func TestRunLoop_HeadlessMode(t *testing.T) {
 	}
 }
 
+func TestRunLoop_SystemPrompt(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:      "test",
+		Iterations:   1,
+		Runner:       mock,
+		Stderr:       &bytes.Buffer{},
+		SystemPrompt: "You are an expert coder",
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if mock.Calls[0].SystemPrompt != "You are an expert coder" {
+		t.Errorf("SystemPrompt = %q, want 'You are an expert coder'", mock.Calls[0].SystemPrompt)
+	}
+}
+
 func TestRunLoop_PassthroughArgs(t *testing.T) {
 	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
 	cfg := Config{
