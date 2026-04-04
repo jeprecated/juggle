@@ -54,6 +54,9 @@ var (
 	agentMonitor        bool   // Open monitor TUI (connects to running daemon)
 	agentSkipHooksCheck bool   // Skip Claude hooks check
 	agentShowThinking   string // Show thinking blocks ("", "true", "false")
+	agentManual        bool     // Manual mode (bypass balls)
+	agentWatch         string   // Watch mode directory
+	agentContexts      []string // Context strings/files for manual/watch mode
 
 	// Refine command flags
 	refineProvider string // Agent provider for refine command
@@ -240,6 +243,9 @@ func init() {
 	agentRunCmd.Flags().BoolVar(&agentMonitor, "monitor", false, "Open monitor TUI (connects to running daemon if exists)")
 	agentRunCmd.Flags().BoolVar(&agentSkipHooksCheck, "skip-hooks-check", false, "Skip Claude hooks installation check")
 	agentRunCmd.Flags().StringVar(&agentShowThinking, "show-thinking", "", "Show thinking blocks in output (true/false, default: false)")
+	agentRunCmd.Flags().BoolVar(&agentManual, "manual", false, "Manual mode: bypass balls, use --context for prompt content")
+	agentRunCmd.Flags().StringVar(&agentWatch, "watch", "", "Watch mode: process task files from directory")
+	agentRunCmd.Flags().StringArrayVar(&agentContexts, "context", nil, "Context to inject into prompt (string or @file). Repeatable. Requires --manual or --watch")
 
 	// Refine command flags
 	agentRefineCmd.Flags().StringVar(&refineProvider, "provider", "", "Agent provider to use (claude, opencode). Default: from config or claude")
@@ -335,6 +341,10 @@ type AgentLoopConfig struct {
 	Message      string // User message to append to the agent prompt
 	DaemonMode   bool   // Run in daemon mode with file-based state and control
 	ShowThinking bool   // Show thinking blocks in output
+	Manual        bool     // Manual mode: bypass balls, use contexts for prompt
+	WatchDir      string   // Watch mode: process task files from this directory
+	WatchTaskFile string   // Current task file path (set by watch loop, re-read each iteration)
+	Contexts      []string // Resolved context values for manual/watch mode
 }
 
 // sessionStorageID returns the session ID used for storage (progress, output, lock)
