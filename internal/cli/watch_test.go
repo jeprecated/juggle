@@ -6,11 +6,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
 )
+
+// funcRunner delegates Run to a function; useful for ad-hoc test runners.
+type funcRunner struct {
+	run func(agent.RunOptions) (*agent.RunResult, error)
+}
+
+func (r *funcRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
+	return r.run(opts)
+}
 
 func TestScanWatchDir(t *testing.T) {
 	t.Run("empty directory", func(t *testing.T) {
@@ -517,5 +527,226 @@ func TestRunWatchTask_OnFailureRetry_RetriesBeforeAdvancing(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "retrying") {
 		t.Errorf("expected 'retrying' in stderr, got: %s", stderr.String())
+	}
+}
+
+// --- Workers tests ---
+
+func TestScanWatchDirAll_ReturnsAllFiles(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte("a"), 0644)
+	os.WriteFile(filepath.Join(dir, "b.md"), []byte("b"), 0644)
+	os.WriteFile(filepath.Join(dir, ".hidden"), []byte("h"), 0644)
+	os.Mkdir(filepath.Join(dir, "subdir"), 0755)
+
+	files, err := ScanWatchDirAll(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files (no hidden/dirs), got %d: %v", len(files), files)
+	}
+}
+
+func TestScanWatchDirAll_EmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	files, err := ScanWatchDirAll(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(files) != 0 {
+		t.Errorf("expected empty, got %v", files)
+	}
+}
+
+func TestWorkerCoordinator_ClaimsAreMutuallyExclusive(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.md"), []byte("a"), 0644)
+	os.WriteFile(filepath.Join(dir, "b.md"), []byte("b"), 0644)
+
+	coord := newWorkerCoordinator()
+
+	path1, err := coord.claim(dir)
+	if err != nil || path1 == "" {
+		t.Fatalf("expected first claim, got %q, %v", path1, err)
+	}
+
+	path2, err := coord.claim(dir)
+	if err != nil || path2 == "" {
+		t.Fatalf("expected second claim, got %q, %v", path2, err)
+	}
+
+	if path1 == path2 {
+		t.Errorf("two workers claimed same file %q", path1)
+	}
+
+	// All claimed — third returns empty
+	path3, err := coord.claim(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if path3 != "" {
+		t.Errorf("expected empty when all files claimed, got %q", path3)
+	}
+}
+
+func TestWorkerCoordinator_ReleaseAllowsReclaim(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "task.md"), []byte("t"), 0644)
+
+	coord := newWorkerCoordinator()
+	path1, _ := coord.claim(dir)
+	if path1 == "" {
+		t.Fatal("expected initial claim")
+	}
+
+	// Still claimed — cannot reclaim
+	path2, _ := coord.claim(dir)
+	if path2 != "" {
+		t.Errorf("expected empty while claimed, got %q", path2)
+	}
+
+	coord.release(path1)
+
+	// Now available again
+	path3, _ := coord.claim(dir)
+	if path3 == "" {
+		t.Error("expected reclaim after release")
+	}
+}
+
+func TestRun_WorkersWithoutWatch_IsError(t *testing.T) {
+	cfg := Config{
+		Content: "prompt",
+		Workers: 2,
+		Stdout:  &bytes.Buffer{},
+		Stderr:  &bytes.Buffer{},
+		Runner:  agent.NewMockRunner(&agent.RunResult{}),
+	}
+	err := Run(cfg)
+	if err == nil {
+		t.Fatal("expected error for --workers without --watch")
+	}
+	if !strings.Contains(err.Error(), "workers") {
+		t.Errorf("error should mention --workers, got: %v", err)
+	}
+}
+
+func TestRunWatchWorkers_WorkerIDInEnv(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "task.md"), []byte("task content"), 0644)
+
+	shutdown := make(chan struct{})
+	var mu sync.Mutex
+	var calls []agent.RunOptions
+
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		mu.Lock()
+		calls = append(calls, opts)
+		mu.Unlock()
+		select {
+		case <-shutdown:
+		default:
+			close(shutdown)
+		}
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:      dir,
+		Workers:    2,
+		Iterations: 5,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	RunWatch(cfg) //nolint:errcheck
+
+	mu.Lock()
+	c := append([]agent.RunOptions{}, calls...)
+	mu.Unlock()
+
+	if len(c) == 0 {
+		t.Fatal("expected at least one call")
+	}
+	for i, call := range c {
+		hasWorkerID := false
+		for _, e := range call.Env {
+			if strings.HasPrefix(e, "JUGGLE_WORKER_ID=") {
+				hasWorkerID = true
+				break
+			}
+		}
+		if !hasWorkerID {
+			t.Errorf("call %d missing JUGGLE_WORKER_ID in env: %v", i, call.Env)
+		}
+	}
+}
+
+func TestRunWatchWorkers_NoDuplicateTaskSelection(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "task1.md"), []byte("t1"), 0644)
+	os.WriteFile(filepath.Join(dir, "task2.md"), []byte("t2"), 0644)
+
+	shutdown := make(chan struct{})
+	var mu sync.Mutex
+	active := make(map[string]int) // filename → count of concurrent runs
+	var duplicateDetected bool
+	totalCalls := 0
+
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		var taskFile string
+		for _, e := range opts.Env {
+			if strings.HasPrefix(e, "JUGGLE_TASK_FILE=") {
+				taskFile = filepath.Base(strings.TrimPrefix(e, "JUGGLE_TASK_FILE="))
+			}
+		}
+
+		mu.Lock()
+		active[taskFile]++
+		if active[taskFile] > 1 {
+			duplicateDetected = true
+		}
+		totalCalls++
+		n := totalCalls
+		mu.Unlock()
+
+		// Hold briefly so both workers can be active simultaneously
+		time.Sleep(2 * time.Millisecond)
+
+		mu.Lock()
+		active[taskFile]--
+		mu.Unlock()
+
+		if n >= 2 {
+			select {
+			case <-shutdown:
+			default:
+				close(shutdown)
+			}
+		}
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:      dir,
+		Workers:    2,
+		Iterations: 10,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if duplicateDetected {
+		t.Error("two workers claimed the same task file simultaneously")
+	}
+	if totalCalls < 1 {
+		t.Error("expected at least one Run call")
 	}
 }

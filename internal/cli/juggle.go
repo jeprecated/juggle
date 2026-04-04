@@ -100,6 +100,7 @@ type Config struct {
 	PassthroughArgs   []string      // Extra flags passed verbatim to the agent CLI after juggle's own flags
 	AgentCmd          string        // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
 	SystemPrompt      string        // Optional system prompt appended to the agent's system prompt
+	Workers           int           // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -212,6 +213,7 @@ var flags struct {
 	retries         int
 	agentCmd        string
 	systemPrompt    string
+	workers         int
 }
 
 func init() {
@@ -251,6 +253,7 @@ func init() {
 	f.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 	f.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
 	f.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
+	f.IntVar(&flags.workers, "workers", 1, "number of concurrent watch workers (requires --watch)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -440,6 +443,7 @@ func run(cmd *cobra.Command, args []string) error {
 		PassthroughArgs:   passthroughArgs,
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
+		Workers:           flags.workers,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -503,6 +507,10 @@ func Run(cfg Config) error {
 
 	if len(cfg.AllowedTools) > 0 && len(cfg.DisallowedTools) > 0 {
 		return fmt.Errorf("--allowed-tools and --disallowed-tools are mutually exclusive")
+	}
+
+	if cfg.Workers > 1 && cfg.Watch == "" {
+		return fmt.Errorf("--workers requires --watch")
 	}
 
 	switch cfg.OnFailure {
