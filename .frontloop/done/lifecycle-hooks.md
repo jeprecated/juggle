@@ -29,3 +29,21 @@ These are SHELL COMMANDS, distinct from:
 - If value starts with `@`, resolve file path via ResolveArgs (JUGGLE_PROMPTS → cwd), then execute the resolved file
 - Otherwise execute inline command via `exec.Command("sh", "-c", cmd)` for shell expansion
 - Hook output goes to stderr
+
+## Completion Summary
+
+- Added `CmdBefore` and `CmdAfter` fields to `Config` struct
+- Added `--cmd-before` and `--cmd-after` CLI flags
+- Created `internal/cli/hooks.go` with `hookEnv` struct, `runHook` function, and `resolveHookPath` for `@file` resolution
+- Integrated cmd-before into `RunLoop` and `runWatchTask`: skips iteration on failure, logs warning
+- Integrated cmd-after into `RunLoop` and `runWatchTask`: logs warning on failure but continues
+- `hookEnv` passes `JUGGLE_ITERATION`, `JUGGLE_MAX_ITERATIONS`, `JUGGLE_EXIT_CODE`, `JUGGLE_INPUT_TOKENS`, `JUGGLE_OUTPUT_TOKENS` as env vars
+- After-cmd receives exit code and token counts from the completed iteration
+- `@file` references resolved via `resolveHookPath` using JUGGLE_PROMPTS → cwd fallback
+
+### Files Changed
+
+- `internal/cli/hooks.go` (new)
+- `internal/cli/hooks_test.go` (new)
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/watch.go` (modified)

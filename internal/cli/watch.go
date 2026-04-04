@@ -114,6 +114,15 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		}
 
 		formatter.IterationHeader(i, max, filename)
+
+		// Run cmd-before; skip iteration on failure
+		if cfg.CmdBefore != "" {
+			if err := runHook(cfg.CmdBefore, hookEnv{iteration: i, maxIterations: max}, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "cmd-before failed (skipping iteration %d): %v\n", i, err)
+				continue
+			}
+		}
+
 		start := time.Now()
 
 		// Re-read task file each iteration
@@ -188,6 +197,20 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			stats.cacheTokens += result.CacheTokens
 		}
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
+
+		// Run cmd-after; log warning on failure but continue
+		if cfg.CmdAfter != "" {
+			afterEnv := hookEnv{
+				iteration:     i,
+				maxIterations: max,
+				exitCode:      result.ExitCode,
+				inputTokens:   result.InputTokens,
+				outputTokens:  result.OutputTokens,
+			}
+			if err := runHook(cfg.CmdAfter, afterEnv, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "cmd-after failed (iteration %d): %v\n", i, err)
+			}
+		}
 
 		// Wait between iterations (skip after last), interruptible by shutdown
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {

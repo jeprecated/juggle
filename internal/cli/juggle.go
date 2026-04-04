@@ -46,6 +46,8 @@ type Config struct {
 	ShowThinking bool          // Show thinking blocks
 	Verbose      bool          // Show tool inputs in headless output
 	MaxFailures  int           // Stop after N consecutive non-zero exits (0 = disabled)
+	CmdBefore    string        // Shell command to run before each iteration
+	CmdAfter     string        // Shell command to run after each iteration
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -102,6 +104,8 @@ var flags struct {
 	showThinking bool
 	verbose      bool
 	maxFailures  int
+	cmdBefore    string
+	cmdAfter     string
 }
 
 func init() {
@@ -120,6 +124,8 @@ func init() {
 	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
 	f.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
 	f.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
+	f.StringVar(&flags.cmdBefore, "cmd-before", "", "shell command to run before each iteration")
+	f.StringVar(&flags.cmdAfter, "cmd-after", "", "shell command to run after each iteration")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -213,6 +219,8 @@ func run(cmd *cobra.Command, args []string) error {
 		ShowThinking: flags.showThinking,
 		Verbose:      flags.verbose,
 		MaxFailures:  flags.maxFailures,
+		CmdBefore:    flags.cmdBefore,
+		CmdAfter:     flags.cmdAfter,
 	}
 
 	// Build runner from provider flag
@@ -293,6 +301,15 @@ func RunLoop(cfg Config) error {
 		}
 
 		formatter.IterationHeader(i, max, "")
+
+		// Run cmd-before; skip iteration on failure
+		if cfg.CmdBefore != "" {
+			if err := runHook(cfg.CmdBefore, hookEnv{iteration: i, maxIterations: max}, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "cmd-before failed (skipping iteration %d): %v\n", i, err)
+				continue
+			}
+		}
+
 		start := time.Now()
 
 		prompt := BuildPrompt(cfg.Content, i, max)
@@ -356,6 +373,20 @@ func RunLoop(cfg Config) error {
 		stats.outputTokens += result.OutputTokens
 		stats.cacheTokens += result.CacheTokens
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
+
+		// Run cmd-after; log warning on failure but continue
+		if cfg.CmdAfter != "" {
+			afterEnv := hookEnv{
+				iteration:     i,
+				maxIterations: max,
+				exitCode:      result.ExitCode,
+				inputTokens:   result.InputTokens,
+				outputTokens:  result.OutputTokens,
+			}
+			if err := runHook(cfg.CmdAfter, afterEnv, cfg.Stderr); err != nil {
+				fmt.Fprintf(cfg.Stderr, "cmd-after failed (iteration %d): %v\n", i, err)
+			}
+		}
 
 		// Wait between iterations (skip after last), interruptible by shutdown
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
