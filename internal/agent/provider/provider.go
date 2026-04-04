@@ -65,6 +65,7 @@ type RunOptions struct {
 	HooksSettingsFile string          // path to temp settings JSON for agent-internal hooks (Claude-specific)
 	AllowedTools      []string        // restrict agent to these tools only (mutually exclusive with DisallowedTools)
 	DisallowedTools   []string        // block specific tools (mutually exclusive with AllowedTools)
+	MaxTurns          int             // cap tool-use turns per iteration (0 = provider default)
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

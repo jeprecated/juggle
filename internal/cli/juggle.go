@@ -63,6 +63,7 @@ type Config struct {
 	RunID             string        // Stable UUID for the entire run (generated in Run() if empty)
 	AllowedTools      []string      // Restrict agent to these tools only (mutually exclusive with DisallowedTools)
 	DisallowedTools   []string      // Block specific tools (mutually exclusive with AllowedTools)
+	MaxTurns          int           // Cap tool-use turns per iteration (0 = provider default)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -168,6 +169,7 @@ var flags struct {
 	label           string
 	allowedTools    []string
 	disallowedTools []string
+	maxTurns        int
 }
 
 func init() {
@@ -200,6 +202,7 @@ func init() {
 	f.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
 	f.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
 	f.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
+	f.IntVar(&flags.maxTurns, "max-turns", 0, "cap tool-use turns per iteration (0 = provider default)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -329,6 +332,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Label:             flags.label,
 		AllowedTools:      flags.allowedTools,
 		DisallowedTools:   flags.disallowedTools,
+		MaxTurns:          flags.maxTurns,
 	}
 
 	// Build runner from provider flag

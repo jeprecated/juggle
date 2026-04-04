@@ -929,3 +929,43 @@ func TestRunLoop_DisallowedToolsPassedToRunner(t *testing.T) {
 		}
 	}
 }
+
+func TestRunLoop_MaxTurnsPassedToRunner(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		MaxTurns:   50,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) == 0 {
+		t.Fatal("no calls made")
+	}
+	if mock.Calls[0].MaxTurns != 50 {
+		t.Errorf("MaxTurns = %d, want 50", mock.Calls[0].MaxTurns)
+	}
+}
+
+func TestRunLoop_MaxTurns_Zero_NotPassed(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		MaxTurns:   0,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) == 0 {
+		t.Fatal("no calls made")
+	}
+	if mock.Calls[0].MaxTurns != 0 {
+		t.Errorf("MaxTurns = %d, want 0", mock.Calls[0].MaxTurns)
+	}
+}

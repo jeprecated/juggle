@@ -113,6 +113,10 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 		args = append(args, "--disallowedTools", strings.Join(opts.DisallowedTools, ","))
 	}
 
+	if opts.MaxTurns > 0 {
+		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxTurns))
+	}
+
 	args = append(args, "--output-format", "stream-json", "--verbose")
 	args = append(args, "-p", "-")
 

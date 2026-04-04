@@ -431,6 +431,31 @@ func TestClaudeHeadlessArgs_NoToolsFlags_WhenEmpty(t *testing.T) {
 	}
 }
 
+func TestClaudeHeadlessArgs_MaxTurns(t *testing.T) {
+	opts := RunOptions{MaxTurns: 50}
+	args := claudeHeadlessArgs(opts)
+	found := false
+	for i, a := range args {
+		if a == "--max-turns" && i+1 < len(args) && args[i+1] == "50" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected --max-turns 50 in args, got: %v", args)
+	}
+}
+
+func TestClaudeHeadlessArgs_MaxTurns_Zero(t *testing.T) {
+	opts := RunOptions{MaxTurns: 0}
+	args := claudeHeadlessArgs(opts)
+	for _, a := range args {
+		if a == "--max-turns" {
+			t.Errorf("unexpected --max-turns flag when MaxTurns=0: %v", args)
+		}
+	}
+}
+
 func TestOpenCodeProvider_Type(t *testing.T) {
 	p := NewOpenCodeProvider()
 	if p.Type() != TypeOpenCode {

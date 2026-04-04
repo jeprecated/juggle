@@ -73,6 +73,9 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	if len(opts.DisallowedTools) > 0 {
 		fmt.Fprintf(os.Stderr, "warning: --disallowed-tools is not supported by the opencode provider and will be ignored\n")
 	}
+	if opts.MaxTurns > 0 {
+		fmt.Fprintf(os.Stderr, "warning: --max-turns is not supported by the opencode provider and will be ignored\n")
+	}
 
 	// OpenCode uses: opencode run "prompt"
 	args := []string{"run"}

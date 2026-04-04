@@ -357,5 +357,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		HooksSettingsFile: cfg.HooksSettingsFile,
 		AllowedTools:      cfg.AllowedTools,
 		DisallowedTools:   cfg.DisallowedTools,
+		MaxTurns:          cfg.MaxTurns,
 	}
 }
