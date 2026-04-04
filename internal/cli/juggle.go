@@ -29,6 +29,9 @@ func SetVersion(v string) {
 // ErrInterrupted is returned when the run is stopped by a signal.
 var ErrInterrupted = errors.New("interrupted by signal")
 
+// errCostGuard is returned by runWatchTask when --max-cost threshold is exceeded.
+var errCostGuard = errors.New("cost guard triggered")
+
 // Config holds all CLI configuration for a juggle run.
 type Config struct {
 	Content      string        // Resolved prompt content (joined)
@@ -55,6 +58,7 @@ type Config struct {
 	AgentPost         string        // Agent session prompt to run once after the loop
 	HooksSettingsFile string        // path to temp hooks settings JSON file (Claude-specific)
 	Log               string        // Path to log file (summary appended on completion)
+	MaxCost           float64       // Stop loop when cumulative cost exceeds this (0 = disabled)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -156,6 +160,7 @@ var flags struct {
 	hooks        []string
 	hooksFile    string
 	log          string
+	maxCost      float64
 }
 
 func init() {
@@ -184,6 +189,7 @@ func init() {
 	f.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
 	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
 	f.StringVar(&flags.log, "log", "", "append run summary to this file on completion")
+	f.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -309,6 +315,7 @@ func run(cmd *cobra.Command, args []string) error {
 		AgentPost:         agentPost,
 		HooksSettingsFile: hooksSettingsFile,
 		Log:               flags.log,
+		MaxCost:           flags.maxCost,
 	}
 
 	// Build runner from provider flag
@@ -552,6 +559,16 @@ func RunLoop(cfg Config) error {
 			}
 			if err := runHook(cfg.StopWhen, stopEnv, cfg.Stderr); err == nil {
 				fmt.Fprintf(cfg.Stderr, "stop-when condition met after iteration %d, stopping\n", i)
+				writeSummary(cfg, stats)
+				return nil
+			}
+		}
+
+		// Check cost guard after each iteration, before delay sleep
+		if cfg.MaxCost > 0 {
+			cost := estimateCost(stats.inputTokens, stats.outputTokens, stats.model)
+			if cost > cfg.MaxCost {
+				fmt.Fprintf(cfg.Stderr, "cost guard triggered: estimated $%.4f exceeds --max-cost $%.4f\n", cost, cfg.MaxCost)
 				writeSummary(cfg, stats)
 				return nil
 			}

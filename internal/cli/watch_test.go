@@ -338,3 +338,62 @@ func TestRunWatchTask_StopWhenExitsZeroStops(t *testing.T) {
 		t.Errorf("expected stop-when message in stderr, got: %s", stderr.String())
 	}
 }
+
+func TestRunWatchTask_MaxCostGuardTriggersAtThreshold(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("do work"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens}, // should not be reached
+	)
+	var stderr bytes.Buffer
+	stats := &runStats{model: "sonnet"}
+	cfg := Config{
+		Content:    "context",
+		Iterations: 5,
+		Model:      "sonnet",
+		MaxCost:    costGuardMaxCost,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+
+	err := runWatchTask(cfg, taskPath, "task.md", stats)
+	if !errors.Is(err, errCostGuard) {
+		t.Fatalf("expected errCostGuard, got: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call before cost guard triggered, got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "cost guard triggered") {
+		t.Errorf("expected 'cost guard triggered' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunWatch_MaxCostGuardPrintsSummaryAndExitsClean(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "task.md"), []byte("do work"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Watch:      dir,
+		Content:    "context",
+		Iterations: 5,
+		Model:      "sonnet",
+		MaxCost:    costGuardMaxCost,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+
+	err := RunWatch(cfg)
+	if err != nil {
+		t.Fatalf("cost guard in watch mode should exit cleanly (nil), got: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Run summary") {
+		t.Errorf("expected 'Run summary' in stderr on watch cost guard exit, got: %s", stderr.String())
+	}
+}

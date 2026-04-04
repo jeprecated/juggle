@@ -86,6 +86,10 @@ func RunWatch(cfg Config) error {
 				writeSummary(cfg, stats)
 				return ErrInterrupted
 			}
+			if errors.Is(err, errCostGuard) {
+				writeSummary(cfg, stats)
+				return nil
+			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
@@ -288,6 +292,15 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			if err := runHook(cfg.StopWhen, stopEnv, cfg.Stderr); err == nil {
 				fmt.Fprintf(cfg.Stderr, "stop-when condition met after iteration %d, stopping\n", i)
 				return nil
+			}
+		}
+
+		// Check cost guard after each iteration, before delay sleep
+		if cfg.MaxCost > 0 && stats != nil {
+			cost := estimateCost(stats.inputTokens, stats.outputTokens, stats.model)
+			if cost > cfg.MaxCost {
+				fmt.Fprintf(cfg.Stderr, "cost guard triggered: estimated $%.4f exceeds --max-cost $%.4f\n", cost, cfg.MaxCost)
+				return errCostGuard
 			}
 		}
 

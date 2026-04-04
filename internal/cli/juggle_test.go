@@ -740,3 +740,118 @@ func TestRunLoop_LogFileWritesSummary(t *testing.T) {
 		t.Errorf("expected 'Run summary' in log file, got: %s", contents)
 	}
 }
+
+// sonnet: (input*3 + output*15) / 1_000_000
+// 100 in + 100 out = $0.0018; use MaxCost=0.001 to trigger after first iteration
+const costGuardMaxCost = 0.001
+const costGuardTokens = 100 // input and output tokens per iteration
+
+func TestRunLoop_MaxCostGuardTriggersAtThreshold(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens}, // should not be reached
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 5,
+		Model:      "sonnet",
+		MaxCost:    costGuardMaxCost,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("cost guard should exit cleanly (nil error), got: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call before cost guard triggered, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_MaxCostGuardDoesNotTriggerBelowThreshold(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: 1, OutputTokens: 1},
+		&agent.RunResult{InputTokens: 1, OutputTokens: 1},
+		&agent.RunResult{InputTokens: 1, OutputTokens: 1},
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 3,
+		Model:      "sonnet",
+		MaxCost:    100.0, // $100 threshold — won't be hit
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls when under threshold, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_MaxCostGuardLogsMessage(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 5,
+		Model:      "sonnet",
+		MaxCost:    costGuardMaxCost,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	RunLoop(cfg)
+	output := stderr.String()
+	if !strings.Contains(output, "cost guard triggered") {
+		t.Errorf("expected 'cost guard triggered' in stderr, got: %s", output)
+	}
+	if !strings.Contains(output, "--max-cost") {
+		t.Errorf("expected '--max-cost' in stderr, got: %s", output)
+	}
+}
+
+func TestRunLoop_MaxCostGuardPrintsSummary(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 5,
+		Model:      "sonnet",
+		MaxCost:    costGuardMaxCost,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	RunLoop(cfg)
+	if !strings.Contains(stderr.String(), "Run summary") {
+		t.Errorf("expected 'Run summary' in stderr on cost guard exit, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_MaxCostZeroDisabled(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+		&agent.RunResult{InputTokens: costGuardTokens, OutputTokens: costGuardTokens},
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 3,
+		Model:      "sonnet",
+		MaxCost:    0, // disabled
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("MaxCost=0 should disable guard, got: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls when MaxCost=0, got %d", len(mock.Calls))
+	}
+}
