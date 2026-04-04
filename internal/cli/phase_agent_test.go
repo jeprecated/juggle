@@ -112,11 +112,11 @@ func TestRunLoop_AgentBefore_RunsBeforeEachIteration(t *testing.T) {
 		&agent.RunResult{Output: "main2"},
 	)
 	cfg := Config{
-		Content:      "main task",
-		Iterations:   2,
-		AgentBefore:  "check prompt",
-		Runner:       mock,
-		Stderr:       &bytes.Buffer{},
+		Content:     "main task",
+		Iterations:  2,
+		AgentBefore: "check prompt",
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
 	}
 	if err := RunLoop(cfg); err != nil {
 		t.Fatalf("unexpected error: %v", err)

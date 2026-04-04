@@ -11,6 +11,21 @@ import (
 	"time"
 )
 
+// quotaPatterns matches usage/quota exhaustion errors (distinct from transient rate limits).
+var quotaPatterns = []string{
+	"daily limit",
+	"daily quota",
+	"usage limit",
+	"usage quota",
+	"monthly limit",
+	"monthly quota",
+	"billing limit",
+	"insufficient_quota",
+	"quota_exceeded",
+	"quota exceeded",
+	"usage_limit_reached",
+}
+
 // ClaudeProvider implements Provider for Claude Code CLI
 type ClaudeProvider struct{}
 
@@ -298,7 +313,28 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 func parseRateLimit(result *RunResult) {
 	output := strings.ToLower(result.Output)
 
-	// Common rate limit patterns from Claude API
+	// Check quota exhaustion first (distinct from transient rate limits)
+	for _, pattern := range quotaPatterns {
+		if strings.Contains(output, pattern) {
+			result.QuotaExhausted = true
+			result.RateLimited = true
+			break
+		}
+	}
+
+	// Check error message for quota patterns
+	if !result.QuotaExhausted && result.Error != nil {
+		errStr := strings.ToLower(result.Error.Error())
+		for _, pattern := range quotaPatterns {
+			if strings.Contains(errStr, pattern) {
+				result.QuotaExhausted = true
+				result.RateLimited = true
+				break
+			}
+		}
+	}
+
+	// Common transient rate limit patterns from Claude API
 	rateLimitPatterns := []string{
 		"rate limit",
 		"rate_limit",
@@ -310,15 +346,17 @@ func parseRateLimit(result *RunResult) {
 		"throttl",
 	}
 
-	for _, pattern := range rateLimitPatterns {
-		if strings.Contains(output, pattern) {
-			result.RateLimited = true
-			break
+	if !result.RateLimited {
+		for _, pattern := range rateLimitPatterns {
+			if strings.Contains(output, pattern) {
+				result.RateLimited = true
+				break
+			}
 		}
 	}
 
 	// Also check error message if present
-	if result.Error != nil {
+	if !result.RateLimited && result.Error != nil {
 		errStr := strings.ToLower(result.Error.Error())
 		for _, pattern := range rateLimitPatterns {
 			if strings.Contains(errStr, pattern) {
@@ -333,8 +371,69 @@ func parseRateLimit(result *RunResult) {
 		result.RetryAfter = parseRetryAfter(result.Output)
 	}
 
+	// Extract quota reset time if quota was hit
+	if result.QuotaExhausted {
+		result.QuotaResetsAt = parseQuotaResetTime(result.Output)
+	}
+
 	// Check for 529 overload exhaustion
 	parseOverloadExhausted(result)
+}
+
+// parseQuotaResetTime extracts the quota window reset time from error messages.
+// Returns zero time if no reset time can be determined.
+func parseQuotaResetTime(output string) time.Time {
+	lower := strings.ToLower(output)
+
+	// Relative patterns: "resets in X hours/minutes"
+	relPhrases := []string{"resets in", "reset in", "available in", "try again in"}
+	for _, phrase := range relPhrases {
+		idx := strings.Index(lower, phrase)
+		if idx < 0 {
+			continue
+		}
+		rest := lower[idx+len(phrase):]
+		rest = strings.TrimSpace(rest)
+
+		var num int
+		if n, _ := fmt.Sscanf(rest, "%d", &num); n == 1 && num > 0 {
+			if strings.Contains(rest, "hour") {
+				return time.Now().Add(time.Duration(num) * time.Hour)
+			}
+			if strings.Contains(rest, "minute") {
+				return time.Now().Add(time.Duration(num) * time.Minute)
+			}
+		}
+	}
+
+	// Absolute patterns: "resets at HH:MM", "try again at HH:MM", "available at HH:MM"
+	absPhrases := []string{"resets at", "reset at", "try again at", "available at"}
+	for _, phrase := range absPhrases {
+		idx := strings.Index(lower, phrase)
+		if idx < 0 {
+			continue
+		}
+		rest := strings.TrimSpace(lower[idx+len(phrase):])
+
+		// Parse HH:MM or HH:MM:SS optionally followed by timezone
+		var h, m, s int
+		n, _ := fmt.Sscanf(rest, "%d:%d:%d", &h, &m, &s)
+		if n < 2 {
+			n, _ = fmt.Sscanf(rest, "%d:%d", &h, &m)
+			s = 0
+		}
+		if n >= 2 && h >= 0 && h < 24 && m >= 0 && m < 60 {
+			now := time.Now().UTC()
+			candidate := time.Date(now.Year(), now.Month(), now.Day(), h, m, s, 0, time.UTC)
+			if candidate.Before(now) {
+				// Time already passed today; use tomorrow
+				candidate = candidate.Add(24 * time.Hour)
+			}
+			return candidate
+		}
+	}
+
+	return time.Time{}
 }
 
 // parseOverloadExhausted detects when the agent has exited after exhausting overload retries

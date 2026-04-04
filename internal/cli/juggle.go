@@ -379,6 +379,46 @@ func RunLoop(cfg Config) error {
 			return fmt.Errorf("agent exhausted overload retries on iteration %d", i)
 		}
 
+		// Handle quota/usage exhaustion — sleep until window resets
+		if result.QuotaExhausted {
+			var wait time.Duration
+			var waitMsg string
+			if !result.QuotaResetsAt.IsZero() {
+				wait = time.Until(result.QuotaResetsAt)
+				if wait < 0 {
+					wait = 0
+				}
+				resetStr := result.QuotaResetsAt.Format("15:04:05")
+				waitMsg = fmt.Sprintf("usage quota hit, waiting until %s (%s) for window reset", resetStr, formatWaitDuration(wait))
+			} else if result.RetryAfter > 0 {
+				wait = result.RetryAfter
+				waitMsg = fmt.Sprintf("usage quota hit (reset time unknown), waiting %s", formatWaitDuration(wait))
+			} else {
+				wait = backoff
+				waitMsg = fmt.Sprintf("usage quota hit (reset time unknown), waiting %s", formatWaitDuration(wait))
+				backoff *= 2
+				if backoff > maxBackoff {
+					backoff = maxBackoff
+				}
+			}
+
+			if cfg.MaxWait > 0 && wait > cfg.MaxWait {
+				return fmt.Errorf("usage quota hit: wait %v exceeds max-wait %v", wait, cfg.MaxWait)
+			}
+
+			fmt.Fprintln(cfg.Stderr, waitMsg)
+			select {
+			case <-time.After(wait):
+			case <-cfg.Shutdown:
+				printRunSummary(cfg.Stderr, stats)
+				return ErrInterrupted
+			}
+
+			// Retry same iteration
+			i--
+			continue
+		}
+
 		// Handle rate limiting with exponential backoff
 		if result.RateLimited {
 			wait := backoff
@@ -520,6 +560,23 @@ func BuildPrompt(content string, iteration, maxIterations int) string {
 func BuildWatchPrompt(taskContents, content, filename string, iteration, maxIterations int) string {
 	return fmt.Sprintf("<task>\n%s\n</task>\n\n%s\n\n---\nThis is iteration %d of %s, processing %s.\n",
 		taskContents, content, iteration, maxStr(maxIterations), filename)
+}
+
+// formatWaitDuration formats a duration as "Xh Ym Zs" for human-readable log messages.
+func formatWaitDuration(d time.Duration) string {
+	if d <= 0 {
+		return "0s"
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	s := int(d.Seconds()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	if m > 0 {
+		return fmt.Sprintf("%dm %ds", m, s)
+	}
+	return fmt.Sprintf("%ds", s)
 }
 
 func maxStr(max int) string {

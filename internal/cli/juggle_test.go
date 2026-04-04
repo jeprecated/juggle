@@ -507,6 +507,91 @@ func TestRunLoop_StopWhenIterationsWinsFirst(t *testing.T) {
 	}
 }
 
+func TestRunLoop_QuotaExhaustedWithResetTime(t *testing.T) {
+	resetAt := time.Now().Add(10 * time.Millisecond)
+	mock := agent.NewMockRunner(
+		&agent.RunResult{QuotaExhausted: true, QuotaResetsAt: resetAt},
+		&agent.RunResult{Output: "success"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{Content: "test", Iterations: 1, Runner: mock, Stderr: &stderr}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 2 {
+		t.Fatalf("expected 2 calls (quota + retry), got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "usage quota hit") {
+		t.Errorf("expected 'usage quota hit' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_QuotaExhaustedLogsWaitUntil(t *testing.T) {
+	resetAt := time.Now().Add(10 * time.Millisecond)
+	mock := agent.NewMockRunner(
+		&agent.RunResult{QuotaExhausted: true, QuotaResetsAt: resetAt},
+		&agent.RunResult{Output: "success"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{Content: "test", Iterations: 1, Runner: mock, Stderr: &stderr}
+	RunLoop(cfg)
+	if !strings.Contains(stderr.String(), "waiting until") {
+		t.Errorf("expected 'waiting until' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_QuotaExhaustedNoResetTime_UsesRetryAfter(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{QuotaExhausted: true, RetryAfter: 1 * time.Millisecond},
+		&agent.RunResult{Output: "success"},
+	)
+	cfg := Config{Content: "test", Iterations: 1, Runner: mock, Stderr: &bytes.Buffer{}}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("expected retry after quota, got error: %v", err)
+	}
+	if len(mock.Calls) != 2 {
+		t.Fatalf("expected 2 calls (quota + retry), got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_QuotaExhaustedMaxWaitExceeded(t *testing.T) {
+	resetAt := time.Now().Add(1 * time.Hour)
+	mock := agent.NewMockRunner(
+		&agent.RunResult{QuotaExhausted: true, QuotaResetsAt: resetAt},
+	)
+	cfg := Config{Content: "test", Iterations: 1, MaxWait: 1 * time.Second, Runner: mock, Stderr: &bytes.Buffer{}}
+	err := RunLoop(cfg)
+	if err == nil {
+		t.Fatal("expected error when quota reset exceeds max-wait")
+	}
+	if !strings.Contains(err.Error(), "max-wait") {
+		t.Errorf("error should mention max-wait, got: %v", err)
+	}
+}
+
+func TestRunLoop_QuotaNotCountedAsFailure(t *testing.T) {
+	resetAt := time.Now().Add(1 * time.Millisecond)
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{QuotaExhausted: true, QuotaResetsAt: resetAt},
+		&agent.RunResult{ExitCode: 0}, // retry of iter 3
+	)
+	cfg := Config{
+		Content:     "test",
+		Iterations:  3,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("quota retry should not count as failure: %v", err)
+	}
+}
+
 func TestComputeDelay(t *testing.T) {
 	t.Run("zero delay and fuzz", func(t *testing.T) {
 		if d := computeDelay(0, 0); d != 0 {

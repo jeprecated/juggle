@@ -256,6 +256,48 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 func (o *OpenCodeProvider) parseRateLimit(result *RunResult) {
 	output := strings.ToLower(result.Output)
 
+	// OpenAI-specific quota patterns (in addition to shared claude quotaPatterns)
+	openaiQuotaPatterns := []string{
+		"exceeded your quota",
+		"insufficient_quota",
+		"quota_exceeded",
+		"usage limit",
+		"usage quota",
+		"daily limit",
+		"daily quota",
+		"monthly limit",
+	}
+
+	// Check quota exhaustion first (distinct from transient rate limits)
+	for _, pattern := range quotaPatterns {
+		if strings.Contains(output, pattern) {
+			result.QuotaExhausted = true
+			result.RateLimited = true
+			break
+		}
+	}
+	if !result.QuotaExhausted {
+		for _, pattern := range openaiQuotaPatterns {
+			if strings.Contains(output, pattern) {
+				result.QuotaExhausted = true
+				result.RateLimited = true
+				break
+			}
+		}
+	}
+
+	// Check error message for quota patterns
+	if !result.QuotaExhausted && result.Error != nil {
+		errStr := strings.ToLower(result.Error.Error())
+		for _, pattern := range quotaPatterns {
+			if strings.Contains(errStr, pattern) {
+				result.QuotaExhausted = true
+				result.RateLimited = true
+				break
+			}
+		}
+	}
+
 	// Rate limit patterns - includes both Anthropic and OpenAI patterns
 	// since OpenCode supports multiple providers
 	rateLimitPatterns := []string{
@@ -267,21 +309,21 @@ func (o *OpenCodeProvider) parseRateLimit(result *RunResult) {
 		"capacity",
 		"try again",
 		"throttl",
-		"quota",         // OpenAI specific
-		"tpm limit",     // Tokens per minute
-		"rpm limit",     // Requests per minute
-		"exceeded your", // "exceeded your quota"
+		"tpm limit", // Tokens per minute
+		"rpm limit", // Requests per minute
 	}
 
-	for _, pattern := range rateLimitPatterns {
-		if strings.Contains(output, pattern) {
-			result.RateLimited = true
-			break
+	if !result.RateLimited {
+		for _, pattern := range rateLimitPatterns {
+			if strings.Contains(output, pattern) {
+				result.RateLimited = true
+				break
+			}
 		}
 	}
 
 	// Also check error message if present
-	if result.Error != nil {
+	if !result.RateLimited && result.Error != nil {
 		errStr := strings.ToLower(result.Error.Error())
 		for _, pattern := range rateLimitPatterns {
 			if strings.Contains(errStr, pattern) {
@@ -294,6 +336,11 @@ func (o *OpenCodeProvider) parseRateLimit(result *RunResult) {
 	// Extract retry-after time if specified
 	if result.RateLimited {
 		result.RetryAfter = parseRetryAfter(result.Output)
+	}
+
+	// Extract quota reset time if quota was hit
+	if result.QuotaExhausted {
+		result.QuotaResetsAt = parseQuotaResetTime(result.Output)
 	}
 
 	// Check for overload exhaustion

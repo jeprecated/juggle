@@ -72,6 +72,8 @@ type RunResult struct {
 	RateLimited       bool          // Rate limit error detected
 	RetryAfter        time.Duration // Suggested wait time from rate limit (0 if not specified)
 	OverloadExhausted bool          // Agent exited after exhausting overload retries
+	QuotaExhausted    bool          // Usage/quota limit hit (daily, monthly, billing cap)
+	QuotaResetsAt     time.Time     // When the quota window resets (zero if unknown)
 	Error             error         // Execution error (if any)
 
 	// Stream-JSON metrics (populated when StreamJSON=true)
