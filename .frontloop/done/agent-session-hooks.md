@@ -55,3 +55,23 @@ The `@` prefix in hook commands reuses existing ResolveArgs resolution: check `$
 - `--settings` merges with existing user/project settings (doesn't replace)
 - 23 hook events available: SessionStart, SessionEnd, PreToolUse, PostToolUse, Stop, etc.
 - Clean up temp settings file after iteration completes
+
+## Completion Summary
+
+- Added `--hook "EVENT:CMD"` (repeatable) and `--hooks-file FILE` CLI flags
+- `parseHookFlag` splits on first colon; resolves `@file` references in commands via `resolveFile`
+- `buildHooksJSON` generates Claude Code settings JSON, merging `--hook` specs onto base `--hooks-file` content
+- `buildHooksSettingsFile` writes merged JSON to a temp file; returns cleanup func that deletes it
+- `HooksSettingsFile string` added to `Config`, `RunOptions`, and wired through `buildRunOptions`
+- Claude provider passes `--settings <path>` in both headless and interactive modes when set
+- Hooks file created once per run (not per iteration); cleaned up via `defer` in cobra handler
+- 17 new tests covering parsing, JSON generation, file creation, cleanup, and RunOptions passthrough
+
+### Files Changed
+
+- `internal/cli/session_hooks.go` (new)
+- `internal/cli/session_hooks_test.go` (new)
+- `internal/agent/provider/provider.go` (modified — added HooksSettingsFile to RunOptions)
+- `internal/agent/provider/claude.go` (modified — pass --settings in headless and interactive modes)
+- `internal/cli/juggle.go` (modified — added flags, HooksSettingsFile to Config, wired in run())
+- `internal/cli/watch.go` (modified — added HooksSettingsFile to buildRunOptions return)

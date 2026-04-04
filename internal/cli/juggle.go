@@ -52,7 +52,8 @@ type Config struct {
 	AgentPre     string        // Agent session prompt to run once before the loop
 	AgentBefore  string        // Agent session prompt to run before each iteration
 	AgentAfter   string        // Agent session prompt to run after each iteration
-	AgentPost    string        // Agent session prompt to run once after the loop
+	AgentPost         string        // Agent session prompt to run once after the loop
+	HooksSettingsFile string        // path to temp hooks settings JSON file (Claude-specific)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -116,6 +117,8 @@ var flags struct {
 	agentBefore  []string
 	agentAfter   []string
 	agentPost    []string
+	hooks        []string
+	hooksFile    string
 }
 
 func init() {
@@ -141,6 +144,8 @@ func init() {
 	f.StringSliceVar(&flags.agentBefore, "agent-before", nil, "agent session prompt(s) to run before each iteration (comma-separated)")
 	f.StringSliceVar(&flags.agentAfter, "agent-after", nil, "agent session prompt(s) to run after each iteration (comma-separated)")
 	f.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
+	f.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
+	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -235,6 +240,12 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--agent-post: %w", err)
 	}
 
+	hooksSettingsFile, hooksCleanup, err := buildHooksSettingsFile(flags.hooks, flags.hooksFile)
+	if err != nil {
+		return fmt.Errorf("hooks: %w", err)
+	}
+	defer hooksCleanup()
+
 	cfg := Config{
 		Content:      strings.Join(resolved, "\n\n"),
 		Watch:        flags.watch,
@@ -257,7 +268,8 @@ func run(cmd *cobra.Command, args []string) error {
 		AgentPre:     agentPre,
 		AgentBefore:  agentBefore,
 		AgentAfter:   agentAfter,
-		AgentPost:    agentPost,
+		AgentPost:         agentPost,
+		HooksSettingsFile: hooksSettingsFile,
 	}
 
 	// Build runner from provider flag

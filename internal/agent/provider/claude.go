@@ -104,6 +104,11 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		args = append(args, flag)
 	}
 
+	// Pass hooks settings file if configured
+	if opts.HooksSettingsFile != "" {
+		args = append(args, "--settings", opts.HooksSettingsFile)
+	}
+
 	// Always use stream-json output format (requires --verbose with -p stdin mode)
 	args = append(args, "--output-format", "stream-json", "--verbose")
 
@@ -244,6 +249,11 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		args = append(args, flag, value)
 	} else {
 		args = append(args, flag)
+	}
+
+	// Pass hooks settings file if configured
+	if opts.HooksSettingsFile != "" {
+		args = append(args, "--settings", opts.HooksSettingsFile)
 	}
 
 	// Interactive mode: pass prompt as argument

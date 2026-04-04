@@ -61,7 +61,8 @@ type RunOptions struct {
 	ShowThinking bool            // Include thinking blocks in output
 	Verbose      bool            // Show tool inputs alongside tool names
 	Context      context.Context // optional external cancellation context (force-kill)
-	Env          []string        // additional environment variables (KEY=VALUE) passed to the subprocess
+	Env               []string        // additional environment variables (KEY=VALUE) passed to the subprocess
+	HooksSettingsFile string          // path to temp settings JSON for agent-internal hooks (Claude-specific)
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

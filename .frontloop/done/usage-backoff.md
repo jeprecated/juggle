@@ -24,3 +24,15 @@ When the agent hits API usage limits (daily quota, TPM/RPM caps, etc.), instead 
 - Look for patterns like "daily limit", "quota exceeded", "usage limit", reset timestamps
 - RetryAfter field on RunResult already exists — may need a separate QuotaResetsAt field
 - Consider reading response headers if available through stream-json output
+
+## Completion Summary
+
+Implemented in commit `xu c0`:
+
+- **provider.go**: Added `QuotaExhausted bool` and `QuotaResetsAt time.Time` to `RunResult`
+- **claude.go**: Added shared `quotaPatterns` var; updated `parseRateLimit` to detect quota vs transient; added `parseQuotaResetTime` to extract relative ("resets in 2 hours") and absolute ("resets at 00:00 UTC") reset times
+- **opencode.go**: Updated `parseRateLimit` similarly with OpenAI-specific quota patterns ("exceeded your quota", etc.)
+- **juggle.go**: Added quota handling block in `RunLoop` before the rate-limit block; logs "usage quota hit, waiting until HH:MM:SS (Xm Ys) for window reset"; respects `--max-wait`; added `formatWaitDuration` helper
+- **watch.go**: Same quota handling block in `runWatchTask`
+- **quota_test.go** (new): Tests for quota pattern detection, reset time parsing
+- **juggle_test.go**: Added 5 new tests for RunLoop quota behavior

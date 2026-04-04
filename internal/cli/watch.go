@@ -329,13 +329,14 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 	}
 
 	return agent.RunOptions{
-		Prompt:       prompt,
-		Mode:         mode,
-		Permission:   perm,
-		Model:        cfg.Model,
-		Timeout:      cfg.Timeout,
-		ShowThinking: cfg.ShowThinking,
-		Verbose:      cfg.Verbose,
-		Context:      cfg.ForceCtx,
+		Prompt:            prompt,
+		Mode:              mode,
+		Permission:        perm,
+		Model:             cfg.Model,
+		Timeout:           cfg.Timeout,
+		ShowThinking:      cfg.ShowThinking,
+		Verbose:           cfg.Verbose,
+		Context:           cfg.ForceCtx,
+		HooksSettingsFile: cfg.HooksSettingsFile,
 	}
 }
