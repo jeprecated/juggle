@@ -56,6 +56,8 @@ func BinaryName(p Type) string {
 		return "claude"
 	case TypeOpenCode:
 		return "opencode"
+	case TypeCodex:
+		return "codex"
 	default:
 		return ""
 	}
@@ -66,6 +68,8 @@ func Get(providerType Type) Provider {
 	switch providerType {
 	case TypeOpenCode:
 		return NewOpenCodeProvider()
+	case TypeCodex:
+		return NewCodexProvider()
 	case TypeClaude:
 		fallthrough
 	default:
@@ -101,5 +105,6 @@ func ValidProviders() []string {
 	return []string{
 		string(TypeClaude),
 		string(TypeOpenCode),
+		string(TypeCodex),
 	}
 }

@@ -145,6 +145,7 @@ func TestType_IsValid(t *testing.T) {
 	}{
 		{TypeClaude, true},
 		{TypeOpenCode, true},
+		{TypeCodex, true},
 		{Type("invalid"), false},
 		{Type(""), false},
 	}
@@ -261,11 +262,11 @@ func TestGet(t *testing.T) {
 
 func TestValidProviders(t *testing.T) {
 	providers := ValidProviders()
-	if len(providers) != 2 {
-		t.Fatalf("expected 2 providers, got %d", len(providers))
+	if len(providers) != 3 {
+		t.Fatalf("expected 3 providers, got %d", len(providers))
 	}
 
-	// Check both providers are present
+	// Check all providers are present
 	found := make(map[string]bool)
 	for _, p := range providers {
 		found[p] = true
@@ -276,6 +277,9 @@ func TestValidProviders(t *testing.T) {
 	}
 	if !found["opencode"] {
 		t.Error("expected 'opencode' in valid providers")
+	}
+	if !found["codex"] {
+		t.Error("expected 'codex' in valid providers")
 	}
 }
 
@@ -652,5 +656,182 @@ func TestOpenCodeProvider_MapPermission_Default(t *testing.T) {
 	}
 	if value != "build" {
 		t.Errorf("value = %q, want 'build'", value)
+	}
+}
+
+func TestCodexProvider_Type(t *testing.T) {
+	p := NewCodexProvider()
+	if p.Type() != TypeCodex {
+		t.Errorf("CodexProvider.Type() = %v, want %v", p.Type(), TypeCodex)
+	}
+}
+
+func TestCodexProvider_MapModel(t *testing.T) {
+	p := NewCodexProvider()
+
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"small", "o4-mini"},
+		{"haiku", "o4-mini"},
+		{"medium", "o4-mini"},
+		{"sonnet", "o4-mini"},
+		{"large", "o3"},
+		{"opus", "o3"},
+		{"o3", "o3"},           // pass-through
+		{"gpt-4.1", "gpt-4.1"}, // pass-through
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.input, func(t *testing.T) {
+			got := p.MapModel(tc.input)
+			if got != tc.want {
+				t.Errorf("MapModel(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCodexProvider_MapPermission(t *testing.T) {
+	p := NewCodexProvider()
+
+	tests := []struct {
+		mode      PermissionMode
+		wantFlag  string
+		wantValue string
+	}{
+		{PermissionAcceptEdits, "--approval-mode", "auto-edit"},
+		{PermissionPlan, "--approval-mode", "suggest"},
+		{PermissionBypass, "--approval-mode", "full-auto"},
+		{PermissionMode("unknown"), "--approval-mode", "auto-edit"},
+	}
+
+	for _, tc := range tests {
+		t.Run(string(tc.mode), func(t *testing.T) {
+			flag, value := p.MapPermission(tc.mode)
+			if flag != tc.wantFlag {
+				t.Errorf("MapPermission(%q) flag = %q, want %q", tc.mode, flag, tc.wantFlag)
+			}
+			if value != tc.wantValue {
+				t.Errorf("MapPermission(%q) value = %q, want %q", tc.mode, value, tc.wantValue)
+			}
+		})
+	}
+}
+
+func TestCodexHeadlessArgs_Basic(t *testing.T) {
+	opts := RunOptions{Prompt: "do the thing"}
+	args := codexHeadlessArgs(opts)
+
+	// Must contain --quiet
+	foundQuiet := false
+	for _, a := range args {
+		if a == "--quiet" {
+			foundQuiet = true
+		}
+	}
+	if !foundQuiet {
+		t.Errorf("expected --quiet in headless args, got: %v", args)
+	}
+
+	// Prompt must be last arg
+	if len(args) == 0 || args[len(args)-1] != "do the thing" {
+		t.Errorf("expected prompt as last arg, got: %v", args)
+	}
+}
+
+func TestCodexHeadlessArgs_Model(t *testing.T) {
+	opts := RunOptions{Prompt: "task", Model: "large"}
+	args := codexHeadlessArgs(opts)
+
+	found := false
+	for i, a := range args {
+		if a == "--model" && i+1 < len(args) && args[i+1] == "o3" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected --model o3 in args, got: %v", args)
+	}
+}
+
+func TestCodexHeadlessArgs_Permission(t *testing.T) {
+	opts := RunOptions{Prompt: "task", Permission: PermissionBypass}
+	args := codexHeadlessArgs(opts)
+
+	found := false
+	for i, a := range args {
+		if a == "--approval-mode" && i+1 < len(args) && args[i+1] == "full-auto" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected --approval-mode full-auto in args, got: %v", args)
+	}
+}
+
+func TestCodexHeadlessArgs_PassthroughArgs(t *testing.T) {
+	opts := RunOptions{Prompt: "task", PassthroughArgs: []string{"--extra", "val"}}
+	args := codexHeadlessArgs(opts)
+
+	// PassthroughArgs must appear before the prompt (which is last)
+	n := len(args)
+	if n < 3 {
+		t.Fatalf("expected at least 3 args, got %d: %v", n, args)
+	}
+	// prompt is last
+	if args[n-1] != "task" {
+		t.Errorf("expected prompt as last arg, got: %v", args)
+	}
+	// --extra val appear before prompt
+	found := false
+	for i, a := range args[:n-1] {
+		if a == "--extra" && i+1 < n-1 && args[i+1] == "val" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected --extra val in args before prompt, got: %v", args)
+	}
+}
+
+func TestCodexProvider_TypeInValid(t *testing.T) {
+	if !TypeCodex.IsValid() {
+		t.Errorf("TypeCodex.IsValid() = false, want true")
+	}
+}
+
+func TestBinaryName_Codex(t *testing.T) {
+	got := BinaryName(TypeCodex)
+	if got != "codex" {
+		t.Errorf("BinaryName(TypeCodex) = %q, want %q", got, "codex")
+	}
+}
+
+func TestGet_Codex(t *testing.T) {
+	p := Get(TypeCodex)
+	if p.Type() != TypeCodex {
+		t.Errorf("Get(TypeCodex).Type() = %v, want TypeCodex", p.Type())
+	}
+}
+
+func TestValidProviders_IncludesCodex(t *testing.T) {
+	providers := ValidProviders()
+	found := false
+	for _, p := range providers {
+		if p == "codex" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected 'codex' in valid providers")
+	}
+}
+
+func TestDetect_Codex(t *testing.T) {
+	got := Detect("codex", "", "")
+	if got != TypeCodex {
+		t.Errorf("Detect(\"codex\", ...) = %v, want TypeCodex", got)
 	}
 }

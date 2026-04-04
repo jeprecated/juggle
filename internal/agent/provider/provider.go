@@ -15,6 +15,8 @@ const (
 	TypeClaude Type = "claude"
 	// TypeOpenCode is the OpenCode CLI provider
 	TypeOpenCode Type = "opencode"
+	// TypeCodex is the OpenAI Codex CLI provider
+	TypeCodex Type = "codex"
 )
 
 // String returns the string representation
@@ -24,7 +26,7 @@ func (p Type) String() string {
 
 // IsValid returns true if the provider type is known
 func (p Type) IsValid() bool {
-	return p == TypeClaude || p == TypeOpenCode
+	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex
 }
 
 // RunMode defines how the agent should be executed
