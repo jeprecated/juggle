@@ -95,6 +95,8 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	// OpenCode takes prompt as argument, not stdin
 	args = append(args, opts.Prompt)
 
+	args = append(args, opts.PassthroughArgs...)
+
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -202,6 +204,8 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	if opts.Prompt != "" {
 		args = append(args, "--prompt", opts.Prompt)
 	}
+
+	args = append(args, opts.PassthroughArgs...)
 
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context

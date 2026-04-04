@@ -124,6 +124,8 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 	args = append(args, "--output-format", "stream-json", "--verbose")
 	args = append(args, "-p", "-")
 
+	args = append(args, opts.PassthroughArgs...)
+
 	return args
 }
 

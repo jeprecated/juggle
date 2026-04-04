@@ -97,6 +97,7 @@ type Config struct {
 	OnFailure         OnFailure     // What to do on non-zero exit: stop, continue, retry (default: stop)
 	Retries           int           // Max retries for OnFailureRetry mode (0 = default 2)
 	RetryBackoffs     []time.Duration // Override retry backoffs for testing (nil = use defaults)
+	PassthroughArgs   []string      // Extra flags passed verbatim to the agent CLI after juggle's own flags
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -295,7 +296,10 @@ Shell completion:
   juggle --cmd-after "npm test" --stop-when "npm test" @task.md
 
   # Multi-phase: run a tidy agent after each iteration
-  juggle --agent-after @tidy @task.md -n 5`,
+  juggle --agent-after @tidy @task.md -n 5
+
+  # Pass provider-specific flags after -- (appended to agent CLI as-is)
+  juggle @task.md -- --max-turns 50 --allowedTools Bash,Read`,
 	Args:              cobra.ArbitraryArgs,
 	ValidArgsFunction: completeArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -314,9 +318,28 @@ func Execute() error {
 	return rootCmd.Execute()
 }
 
+// splitPassthroughArgs splits positional args at the '--' separator.
+// dashLen is the value returned by cmd.Flags().ArgsLenAtDash() (-1 if no '--').
+// Returns (normalArgs, passthroughArgs); passthroughArgs is nil when dashLen < 0 or nothing follows.
+func splitPassthroughArgs(args []string, dashLen int) ([]string, []string) {
+	if dashLen < 0 {
+		return args, nil
+	}
+	normal := args[:dashLen]
+	if len(normal) == 0 {
+		normal = nil
+	}
+	passthru := args[dashLen:]
+	if len(passthru) == 0 {
+		passthru = nil
+	}
+	return normal, passthru
+}
+
 // run is the cobra RunE handler.
 func run(cmd *cobra.Command, args []string) error {
-	resolved, err := ResolveArgs(args)
+	normalArgs, passthroughArgs := splitPassthroughArgs(args, cmd.Flags().ArgsLenAtDash())
+	resolved, err := ResolveArgs(normalArgs)
 	if err != nil {
 		return err
 	}
@@ -384,6 +407,7 @@ func run(cmd *cobra.Command, args []string) error {
 		MCPConfig:         flags.mcpConfig,
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
+		PassthroughArgs:   passthroughArgs,
 	}
 
 	// Build runner from provider flag

@@ -400,5 +400,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		DisallowedTools:   cfg.DisallowedTools,
 		MaxTurns:          cfg.MaxTurns,
 		MCPConfig:         cfg.MCPConfig,
+		PassthroughArgs:   cfg.PassthroughArgs,
 	}
 }

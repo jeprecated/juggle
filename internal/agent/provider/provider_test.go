@@ -481,6 +481,31 @@ func TestClaudeHeadlessArgs_MCPConfig_Empty(t *testing.T) {
 	}
 }
 
+func TestClaudeHeadlessArgs_PassthroughArgs(t *testing.T) {
+	opts := RunOptions{PassthroughArgs: []string{"--max-turns", "50", "--allowedTools", "Bash,Read"}}
+	args := claudeHeadlessArgs(opts)
+	// Pass-through args must appear at the end
+	n := len(args)
+	if n < 4 {
+		t.Fatalf("expected at least 4 args, got %d: %v", n, args)
+	}
+	tail := args[n-4:]
+	want := []string{"--max-turns", "50", "--allowedTools", "Bash,Read"}
+	for i, w := range want {
+		if tail[i] != w {
+			t.Errorf("args[%d] = %q, want %q (tail: %v)", n-4+i, tail[i], w, tail)
+		}
+	}
+}
+
+func TestClaudeHeadlessArgs_PassthroughArgs_Empty(t *testing.T) {
+	withoutPassthrough := claudeHeadlessArgs(RunOptions{})
+	withEmptyPassthrough := claudeHeadlessArgs(RunOptions{PassthroughArgs: []string{}})
+	if len(withoutPassthrough) != len(withEmptyPassthrough) {
+		t.Errorf("empty PassthroughArgs should be a no-op: got %v vs %v", withEmptyPassthrough, withoutPassthrough)
+	}
+}
+
 func TestOpenCodeProvider_Type(t *testing.T) {
 	p := NewOpenCodeProvider()
 	if p.Type() != TypeOpenCode {

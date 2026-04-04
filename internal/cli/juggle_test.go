@@ -137,6 +137,53 @@ func TestRunLoop_HeadlessMode(t *testing.T) {
 	}
 }
 
+func TestRunLoop_PassthroughArgs(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:         "test",
+		Iterations:      1,
+		Runner:          mock,
+		Stderr:          &bytes.Buffer{},
+		PassthroughArgs: []string{"--max-turns", "50"},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
+	}
+	got := mock.Calls[0].PassthroughArgs
+	if len(got) != 2 || got[0] != "--max-turns" || got[1] != "50" {
+		t.Errorf("PassthroughArgs = %v, want [--max-turns 50]", got)
+	}
+}
+
+func TestSplitPassthroughArgs(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		dashLen      int
+		wantNormal   []string
+		wantPassthru []string
+	}{
+		{"no dash", []string{"@task.md"}, -1, []string{"@task.md"}, nil},
+		{"dash with extras", []string{"@task.md", "--max-turns", "50"}, 1, []string{"@task.md"}, []string{"--max-turns", "50"}},
+		{"dash nothing after", []string{"@task.md"}, 1, []string{"@task.md"}, nil},
+		{"only passthrough", []string{"--verbose", "true"}, 0, nil, []string{"--verbose", "true"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			normal, passthru := splitPassthroughArgs(tc.args, tc.dashLen)
+			if len(normal) != len(tc.wantNormal) {
+				t.Errorf("normal = %v, want %v", normal, tc.wantNormal)
+			}
+			if len(passthru) != len(tc.wantPassthru) {
+				t.Errorf("passthru = %v, want %v", passthru, tc.wantPassthru)
+			}
+		})
+	}
+}
+
 func TestRunLoop_TrustMode(t *testing.T) {
 	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
 	cfg := Config{Content: "test", Iterations: 1, Trust: true, Runner: mock, Stderr: &bytes.Buffer{}}

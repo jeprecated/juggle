@@ -320,6 +320,17 @@ func TestBuildRunOptions(t *testing.T) {
 	})
 }
 
+func TestBuildRunOptions_PassthroughArgs(t *testing.T) {
+	cfg := Config{PassthroughArgs: []string{"--max-turns", "50", "--allowedTools", "Bash"}}
+	opts := buildRunOptions(cfg, "prompt")
+	if len(opts.PassthroughArgs) != 4 {
+		t.Fatalf("expected 4 passthrough args, got %d: %v", len(opts.PassthroughArgs), opts.PassthroughArgs)
+	}
+	if opts.PassthroughArgs[0] != "--max-turns" || opts.PassthroughArgs[1] != "50" {
+		t.Errorf("unexpected passthrough args: %v", opts.PassthroughArgs)
+	}
+}
+
 func TestRunWatchTask_StopWhenExitsZeroStops(t *testing.T) {
 	dir := t.TempDir()
 	taskPath := filepath.Join(dir, "task.md")
