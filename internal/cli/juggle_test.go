@@ -363,6 +363,7 @@ func TestRunLoop_ConsecutiveFailuresStop(t *testing.T) {
 	cfg := Config{
 		Content:     "test",
 		Iterations:  10,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &stderr,
@@ -390,6 +391,7 @@ func TestRunLoop_ConsecutiveFailureCounterResets(t *testing.T) {
 	cfg := Config{
 		Content:     "test",
 		Iterations:  5,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
@@ -414,6 +416,7 @@ func TestRunLoop_MaxFailuresZeroDisablesCheck(t *testing.T) {
 	cfg := Config{
 		Content:     "test",
 		Iterations:  5,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 0, // disabled
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
@@ -437,6 +440,7 @@ func TestRunLoop_RateLimitNotCountedAsFailure(t *testing.T) {
 	cfg := Config{
 		Content:     "test",
 		Iterations:  3,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
@@ -593,6 +597,7 @@ func TestRunLoop_QuotaNotCountedAsFailure(t *testing.T) {
 	cfg := Config{
 		Content:     "test",
 		Iterations:  3,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
@@ -689,6 +694,7 @@ func TestRunLoop_NoSummaryOnError(t *testing.T) {
 	cfg := Config{
 		Content:     "test",
 		Iterations:  10,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &stderr,
@@ -996,5 +1002,174 @@ func TestRunLoop_MaxTurns_Zero_NotPassed(t *testing.T) {
 	}
 	if mock.Calls[0].MaxTurns != 0 {
 		t.Errorf("MaxTurns = %d, want 0", mock.Calls[0].MaxTurns)
+	}
+}
+
+// --- OnFailure tests ---
+
+func TestRunLoop_OnFailureStop_HaltsOnFirstFailure(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // should not be reached
+	)
+	cfg := Config{
+		Content:    "test",
+		Iterations: 5,
+		OnFailure:  OnFailureStop,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err == nil {
+		t.Fatal("expected error when OnFailureStop and iteration fails")
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call before stop, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_OnFailureContinue_LogsAndContinues(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0},
+		&agent.RunResult{ExitCode: 0},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:     "test",
+		Iterations:  3,
+		OnFailure:   OnFailureContinue,
+		MaxFailures: 5,
+		Runner:      mock,
+		Stderr:      &stderr,
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls, got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "continuing") {
+		t.Errorf("expected 'continuing' message in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_OnFailureContinue_MaxFailuresStopsLoop(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // should not be reached
+	)
+	cfg := Config{
+		Content:     "test",
+		Iterations:  10,
+		OnFailure:   OnFailureContinue,
+		MaxFailures: 3,
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err == nil {
+		t.Fatal("expected error when consecutive failures hit MaxFailures")
+	}
+	if !strings.Contains(err.Error(), "3 consecutive failures") {
+		t.Errorf("error should mention '3 consecutive failures', got: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls before stop, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_OnFailureRetry_RetriesBeforeAdvancing(t *testing.T) {
+	// iteration 1: fail, retry1 fail, retry2 fail (exhausted) → continue to iter 2
+	// iteration 2: succeed
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1}, // iter 1, attempt 1
+		&agent.RunResult{ExitCode: 1}, // iter 1, retry 1
+		&agent.RunResult{ExitCode: 1}, // iter 1, retry 2 (exhausted)
+		&agent.RunResult{ExitCode: 0}, // iter 2
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:       "test",
+		Iterations:    2,
+		OnFailure:     OnFailureRetry,
+		Retries:       2,
+		MaxFailures:   5,
+		RetryBackoffs: []time.Duration{time.Millisecond, time.Millisecond},
+		Runner:        mock,
+		Stderr:        &stderr,
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 4 {
+		t.Errorf("expected 4 calls (3 attempts iter1 + 1 iter2), got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "retrying") {
+		t.Errorf("expected 'retrying' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_OnFailureRetry_SuccessOnRetry(t *testing.T) {
+	// iteration 1: fail, retry succeeds
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1}, // iter 1, attempt 1
+		&agent.RunResult{ExitCode: 0}, // iter 1, retry 1 (success)
+		&agent.RunResult{ExitCode: 0}, // iter 2
+	)
+	cfg := Config{
+		Content:       "test",
+		Iterations:    2,
+		OnFailure:     OnFailureRetry,
+		Retries:       2,
+		MaxFailures:   5,
+		RetryBackoffs: []time.Duration{time.Millisecond, time.Millisecond},
+		Runner:        mock,
+		Stderr:        &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls (fail+retry+iter2), got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_OnFailureRetry_ExhaustionIncrementsFailureCounter(t *testing.T) {
+	// Each iteration exhausts retries → consecutive failures → MaxFailures stops loop
+	mock := agent.NewMockRunner(
+		// iter 1: fail x3
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		// iter 2: fail x3
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 1},
+	)
+	cfg := Config{
+		Content:       "test",
+		Iterations:    10,
+		OnFailure:     OnFailureRetry,
+		Retries:       2,
+		MaxFailures:   2,
+		RetryBackoffs: []time.Duration{time.Millisecond, time.Millisecond},
+		Runner:        mock,
+		Stderr:        &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err == nil {
+		t.Fatal("expected error after MaxFailures consecutive retry-exhausted iterations")
+	}
+	if !strings.Contains(err.Error(), "2 consecutive failures") {
+		t.Errorf("error should mention '2 consecutive failures', got: %v", err)
+	}
+	if len(mock.Calls) != 6 {
+		t.Errorf("expected 6 calls (3 per iter × 2 iters), got %d", len(mock.Calls))
 	}
 }

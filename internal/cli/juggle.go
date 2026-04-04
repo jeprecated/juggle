@@ -29,6 +29,34 @@ func SetVersion(v string) {
 // ErrInterrupted is returned when the run is stopped by a signal.
 var ErrInterrupted = errors.New("interrupted by signal")
 
+// OnFailure controls what happens when an agent iteration exits non-zero.
+type OnFailure string
+
+const (
+	// OnFailureStop halts the loop on the first non-zero exit (default).
+	OnFailureStop OnFailure = "stop"
+	// OnFailureContinue logs the failure and skips to the next iteration.
+	OnFailureContinue OnFailure = "continue"
+	// OnFailureRetry retries the same iteration up to --retries times with backoff.
+	OnFailureRetry OnFailure = "retry"
+)
+
+// defaultRetryBackoffs are the backoff durations for --on-failure retry mode.
+var defaultRetryBackoffs = []time.Duration{10 * time.Second, 30 * time.Second}
+
+// retryBackoffFor returns the backoff duration for the given retry attempt (0-indexed).
+// overrides replaces the default backoffs when non-nil.
+func retryBackoffFor(attempt int, overrides []time.Duration) time.Duration {
+	backoffs := defaultRetryBackoffs
+	if len(overrides) > 0 {
+		backoffs = overrides
+	}
+	if attempt < len(backoffs) {
+		return backoffs[attempt]
+	}
+	return backoffs[len(backoffs)-1]
+}
+
 // errCostGuard is returned by runWatchTask when --max-cost threshold is exceeded.
 var errCostGuard = errors.New("cost guard triggered")
 
@@ -66,6 +94,9 @@ type Config struct {
 	DisallowedTools   []string      // Block specific tools (mutually exclusive with AllowedTools)
 	MaxTurns          int           // Cap tool-use turns per iteration (0 = provider default)
 	MCPConfig         string        // Path to MCP server config file
+	OnFailure         OnFailure     // What to do on non-zero exit: stop, continue, retry (default: stop)
+	Retries           int           // Max retries for OnFailureRetry mode (0 = default 2)
+	RetryBackoffs     []time.Duration // Override retry backoffs for testing (nil = use defaults)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -174,6 +205,8 @@ var flags struct {
 	disallowedTools []string
 	maxTurns        int
 	mcpConfig       string
+	onFailure       string
+	retries         int
 }
 
 func init() {
@@ -209,6 +242,8 @@ func init() {
 	f.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
 	f.IntVar(&flags.maxTurns, "max-turns", 0, "cap tool-use turns per iteration (0 = provider default)")
 	f.StringVar(&flags.mcpConfig, "mcp-config", "", "path to MCP server config file")
+	f.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
+	f.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -347,6 +382,8 @@ func run(cmd *cobra.Command, args []string) error {
 		DisallowedTools:   flags.disallowedTools,
 		MaxTurns:          flags.maxTurns,
 		MCPConfig:         flags.mcpConfig,
+		OnFailure:         OnFailure(flags.onFailure),
+		Retries:           flags.retries,
 	}
 
 	// Build runner from provider flag
@@ -399,6 +436,13 @@ func Run(cfg Config) error {
 		return fmt.Errorf("--allowed-tools and --disallowed-tools are mutually exclusive")
 	}
 
+	switch cfg.OnFailure {
+	case OnFailureStop, OnFailureContinue, OnFailureRetry, "":
+		// valid (empty treated as stop)
+	default:
+		return fmt.Errorf("invalid --on-failure value: %q (use stop, continue, or retry)", cfg.OnFailure)
+	}
+
 	if cfg.DryRun {
 		prompt := BuildPrompt(cfg.Content, 1, cfg.Iterations)
 		fmt.Fprint(cfg.Stdout, prompt)
@@ -425,6 +469,12 @@ func RunLoop(cfg Config) error {
 	formatter := NewLoopFormatter(cfg.Stderr)
 	stats := runStats{start: time.Now(), model: cfg.Model}
 	consecutiveFailures := 0
+	retryCount := 0
+
+	onFailure := cfg.OnFailure
+	if onFailure == "" {
+		onFailure = OnFailureStop
+	}
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -554,17 +604,51 @@ func RunLoop(cfg Config) error {
 			continue
 		}
 
-		// Track consecutive failures (non-zero exit code)
+		// Handle non-zero exit code according to --on-failure mode
 		if result.ExitCode != 0 {
+			switch onFailure {
+			case OnFailureStop:
+				return fmt.Errorf("iteration %d failed (exit code %d)", i, result.ExitCode)
+
+			case OnFailureRetry:
+				maxRetries := cfg.Retries
+				if maxRetries == 0 {
+					maxRetries = 2
+				}
+				if retryCount < maxRetries {
+					bd := retryBackoffFor(retryCount, cfg.RetryBackoffs)
+					fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), retrying in %v (attempt %d/%d)\n",
+						i, result.ExitCode, bd, retryCount+1, maxRetries)
+					select {
+					case <-time.After(bd):
+					case <-cfg.Shutdown:
+						writeSummary(cfg, stats)
+						return ErrInterrupted
+					}
+					retryCount++
+					i-- // retry same iteration
+					continue
+				}
+				// Retries exhausted — treat as a continued failure
+				retryCount = 0
+				fmt.Fprintf(cfg.Stderr, "iteration %d failed after %d retries, continuing\n", i, maxRetries)
+				// fall through to consecutive failure tracking
+
+			case OnFailureContinue:
+				fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), continuing\n", i, result.ExitCode)
+			}
+
+			// Consecutive failure tracking (continue/retry-exhausted)
 			consecutiveFailures++
 			if cfg.MaxFailures > 0 && consecutiveFailures >= cfg.MaxFailures {
 				return fmt.Errorf("stopping: %d consecutive failures", consecutiveFailures)
 			}
 		} else {
 			consecutiveFailures = 0
+			retryCount = 0
 		}
 
-		// Success: reset backoff, accumulate stats, and print status
+		// Reset backoff, accumulate stats, and print status
 		backoff = initialBackoff
 		stats.iterations++
 		stats.inputTokens += result.InputTokens

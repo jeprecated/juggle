@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
 )
@@ -223,6 +224,7 @@ func TestRunWatchTask_ConsecutiveFailuresStop(t *testing.T) {
 	cfg := Config{
 		Content:     "context",
 		Iterations:  10,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
@@ -254,6 +256,7 @@ func TestRunWatchTask_ConsecutiveFailureCounterResets(t *testing.T) {
 	cfg := Config{
 		Content:     "context",
 		Iterations:  5,
+		OnFailure:   OnFailureContinue,
 		MaxFailures: 3,
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
@@ -403,5 +406,97 @@ func TestRunWatch_MaxCostGuardPrintsSummaryAndExitsClean(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Run summary") {
 		t.Errorf("expected 'Run summary' in stderr on watch cost guard exit, got: %s", stderr.String())
+	}
+}
+
+// --- OnFailure tests for RunWatch/runWatchTask ---
+
+func TestRunWatchTask_OnFailureStop_HaltsOnFirstFailure(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0}, // should not be reached
+	)
+	cfg := Config{
+		Content:    "context",
+		Iterations: 5,
+		OnFailure:  OnFailureStop,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if err == nil {
+		t.Fatal("expected error when OnFailureStop and iteration fails")
+	}
+	if len(mock.Calls) != 1 {
+		t.Errorf("expected 1 call before stop, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunWatchTask_OnFailureContinue_SkipsToNext(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1},
+		&agent.RunResult{ExitCode: 0},
+		&agent.RunResult{ExitCode: 0},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:     "context",
+		Iterations:  3,
+		OnFailure:   OnFailureContinue,
+		MaxFailures: 5,
+		Runner:      mock,
+		Stderr:      &stderr,
+	}
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Errorf("expected 3 calls, got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "continuing") {
+		t.Errorf("expected 'continuing' in stderr, got: %s", stderr.String())
+	}
+}
+
+func TestRunWatchTask_OnFailureRetry_RetriesBeforeAdvancing(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1}, // iter 1, attempt 1
+		&agent.RunResult{ExitCode: 1}, // iter 1, retry 1
+		&agent.RunResult{ExitCode: 0}, // iter 1, retry 2 (success)
+		&agent.RunResult{ExitCode: 0}, // iter 2
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:       "context",
+		Iterations:    2,
+		OnFailure:     OnFailureRetry,
+		Retries:       2,
+		MaxFailures:   5,
+		RetryBackoffs: []time.Duration{time.Millisecond, time.Millisecond},
+		Runner:        mock,
+		Stderr:        &stderr,
+	}
+	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 4 {
+		t.Errorf("expected 4 calls (fail+retry+success+iter2), got %d", len(mock.Calls))
+	}
+	if !strings.Contains(stderr.String(), "retrying") {
+		t.Errorf("expected 'retrying' in stderr, got: %s", stderr.String())
 	}
 }

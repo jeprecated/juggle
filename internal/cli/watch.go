@@ -106,6 +106,12 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
 	consecutiveFailures := 0
+	retryCount := 0
+
+	onFailure := cfg.OnFailure
+	if onFailure == "" {
+		onFailure = OnFailureStop
+	}
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -242,17 +248,50 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			continue
 		}
 
-		// Track consecutive failures (non-zero exit code)
+		// Handle non-zero exit code according to --on-failure mode
 		if result.ExitCode != 0 {
+			switch onFailure {
+			case OnFailureStop:
+				return fmt.Errorf("iteration %d failed (exit code %d)", i, result.ExitCode)
+
+			case OnFailureRetry:
+				maxRetries := cfg.Retries
+				if maxRetries == 0 {
+					maxRetries = 2
+				}
+				if retryCount < maxRetries {
+					bd := retryBackoffFor(retryCount, cfg.RetryBackoffs)
+					fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), retrying in %v (attempt %d/%d)\n",
+						i, result.ExitCode, bd, retryCount+1, maxRetries)
+					select {
+					case <-time.After(bd):
+					case <-cfg.Shutdown:
+						return ErrInterrupted
+					}
+					retryCount++
+					i-- // retry same iteration
+					continue
+				}
+				// Retries exhausted — treat as a continued failure
+				retryCount = 0
+				fmt.Fprintf(cfg.Stderr, "iteration %d failed after %d retries, continuing\n", i, maxRetries)
+				// fall through to consecutive failure tracking
+
+			case OnFailureContinue:
+				fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), continuing\n", i, result.ExitCode)
+			}
+
+			// Consecutive failure tracking (continue/retry-exhausted)
 			consecutiveFailures++
 			if cfg.MaxFailures > 0 && consecutiveFailures >= cfg.MaxFailures {
 				return fmt.Errorf("stopping: %d consecutive failures", consecutiveFailures)
 			}
 		} else {
 			consecutiveFailures = 0
+			retryCount = 0
 		}
 
-		// Success: reset backoff, accumulate stats, and print status
+		// Reset backoff, accumulate stats, and print status
 		backoff = initialBackoff
 		if stats != nil {
 			stats.iterations++
