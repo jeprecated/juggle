@@ -29,11 +29,11 @@ type StreamEvent struct {
 
 // AssistantMessage represents the message field in assistant events
 type AssistantMessage struct {
-	ID      string           `json:"id"`
-	Model   string           `json:"model"`
-	Role    string           `json:"role"`
-	Content []ContentBlock   `json:"content"`
-	Usage   *AssistantUsage  `json:"usage,omitempty"`
+	ID      string          `json:"id"`
+	Model   string          `json:"model"`
+	Role    string          `json:"role"`
+	Content []ContentBlock  `json:"content"`
+	Usage   *AssistantUsage `json:"usage,omitempty"`
 }
 
 // ContentBlock represents a content block in an assistant message
@@ -47,18 +47,18 @@ type ContentBlock struct {
 
 // AssistantUsage represents usage in an assistant message
 type AssistantUsage struct {
-	InputTokens            int `json:"input_tokens"`
-	OutputTokens           int `json:"output_tokens"`
-	CacheCreationTokens    int `json:"cache_creation_input_tokens"`
-	CacheReadTokens        int `json:"cache_read_input_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	CacheCreationTokens int `json:"cache_creation_input_tokens"`
+	CacheReadTokens     int `json:"cache_read_input_tokens"`
 }
 
 // ResultUsage represents usage in the final result
 type ResultUsage struct {
-	InputTokens            int `json:"input_tokens"`
-	OutputTokens           int `json:"output_tokens"`
-	CacheCreationTokens    int `json:"cache_creation_input_tokens"`
-	CacheReadTokens        int `json:"cache_read_input_tokens"`
+	InputTokens         int `json:"input_tokens"`
+	OutputTokens        int `json:"output_tokens"`
+	CacheCreationTokens int `json:"cache_creation_input_tokens"`
+	CacheReadTokens     int `json:"cache_read_input_tokens"`
 }
 
 // StreamAccumulator accumulates JSON Lines events into usable data

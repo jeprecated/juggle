@@ -112,11 +112,11 @@ func TestOpenCodeProvider_MapPermission(t *testing.T) {
 
 func TestDetect(t *testing.T) {
 	tests := []struct {
-		name           string
-		cliOverride    string
+		name            string
+		cliOverride     string
 		projectProvider string
 		globalProvider  string
-		want           Type
+		want            Type
 	}{
 		{"default to claude", "", "", "", TypeClaude},
 		{"cli override wins", "opencode", "claude", "claude", TypeOpenCode},
@@ -426,11 +426,11 @@ func TestParseRateLimit_ClaudeProvider(t *testing.T) {
 
 func TestParseOverloadExhausted(t *testing.T) {
 	tests := []struct {
-		name              string
-		output            string
-		exitCode          int
-		hasError          bool
-		wantExhausted     bool
+		name          string
+		output        string
+		exitCode      int
+		hasError      bool
+		wantExhausted bool
 	}{
 		{"529 with error", "Error: 529 overloaded_error", 1, true, true},
 		{"overloaded_error", "overloaded_error occurred", 1, true, true},

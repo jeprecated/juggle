@@ -54,10 +54,10 @@ type RunOptions struct {
 	Mode         RunMode        // headless vs interactive
 	Permission   PermissionMode // acceptEdits, plan, bypassPermissions
 	Timeout      time.Duration  // timeout per invocation (0 = no timeout)
-	SystemPrompt string // optional additional system prompt
-	Model        string // canonical model name (e.g., "opus", "sonnet", "haiku")
-	WorkingDir   string // working directory for command execution
-	ShowThinking bool   // Include thinking blocks in output
+	SystemPrompt string         // optional additional system prompt
+	Model        string         // canonical model name (e.g., "opus", "sonnet", "haiku")
+	WorkingDir   string         // working directory for command execution
+	ShowThinking bool           // Include thinking blocks in output
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

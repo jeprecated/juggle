@@ -151,16 +151,6 @@ func RunLoop(cfg Config) error {
 
 	max := cfg.Iterations
 
-	// Determine mode and permission
-	mode := agent.ModeHeadless
-	if cfg.Interactive {
-		mode = agent.ModeInteractive
-	}
-	perm := agent.PermissionAcceptEdits
-	if cfg.Trust {
-		perm = agent.PermissionBypass
-	}
-
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
 	const maxBackoff = 10 * time.Minute
@@ -168,15 +158,7 @@ func RunLoop(cfg Config) error {
 
 	for i := 1; max == 0 || i <= max; i++ {
 		prompt := BuildPrompt(cfg.Content, i, max)
-
-		opts := agent.RunOptions{
-			Prompt:       prompt,
-			Mode:         mode,
-			Permission:   perm,
-			Model:        cfg.Model,
-			Timeout:      cfg.Timeout,
-			ShowThinking: cfg.ShowThinking,
-		}
+		opts := buildRunOptions(cfg, prompt)
 
 		result, err := cfg.Runner.Run(opts)
 		if err != nil {
@@ -248,11 +230,6 @@ func computeDelay(delayMinutes, fuzzMinutes int) time.Duration {
 	}
 
 	return time.Duration(total) * time.Minute
-}
-
-// RunWatch runs the agent in watch mode, processing task files from a directory.
-func RunWatch(cfg Config) error {
-	return fmt.Errorf("watch mode not yet implemented")
 }
 
 // BuildPrompt joins content with an iteration footer.
