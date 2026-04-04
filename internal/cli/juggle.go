@@ -42,6 +42,7 @@ type Config struct {
 	Delay        int           // Minutes between iterations
 	Fuzz         int           // +/- random variance in minutes
 	Trust        bool          // Bypass permission checks
+	Plan         bool          // Read-only plan mode
 	Interactive  bool          // Interactive TUI mode
 	Timeout      time.Duration // Per-iteration timeout
 	MaxWait      time.Duration // Max rate limit wait
@@ -149,6 +150,7 @@ var flags struct {
 	delay        int
 	fuzz         int
 	trust        bool
+	plan         bool
 	interactive  bool
 	timeout      time.Duration
 	maxWait      time.Duration
@@ -183,6 +185,7 @@ func init() {
 	f.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
 	f.IntVar(&flags.fuzz, "fuzz", 0, "+/- random variance in minutes")
 	f.BoolVar(&flags.trust, "trust", false, "bypass permission checks")
+	f.BoolVar(&flags.plan, "plan", false, "read-only plan mode (shortcut for --permission-mode plan)")
 	f.BoolVar(&flags.interactive, "interactive", false, "interactive TUI mode")
 	f.DurationVar(&flags.timeout, "timeout", 0, "per-iteration timeout")
 	f.DurationVar(&flags.maxWait, "max-wait", 0, "max rate limit wait")
@@ -321,6 +324,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Delay:        flags.delay,
 		Fuzz:         flags.fuzz,
 		Trust:        flags.trust,
+		Plan:         flags.plan,
 		Interactive:  flags.interactive,
 		Timeout:      flags.timeout,
 		MaxWait:      flags.maxWait,
@@ -385,6 +389,10 @@ func Run(cfg Config) error {
 	}
 	if cfg.RunID == "" {
 		cfg.RunID = generateRunID()
+	}
+
+	if cfg.Plan && cfg.Trust {
+		return fmt.Errorf("--plan and --trust are mutually exclusive")
 	}
 
 	if len(cfg.AllowedTools) > 0 && len(cfg.DisallowedTools) > 0 {

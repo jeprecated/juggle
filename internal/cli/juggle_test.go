@@ -146,6 +146,15 @@ func TestRunLoop_TrustMode(t *testing.T) {
 	}
 }
 
+func TestRunLoop_PlanMode(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{Content: "test", Iterations: 1, Plan: true, Runner: mock, Stderr: &bytes.Buffer{}}
+	RunLoop(cfg)
+	if mock.Calls[0].Permission != agent.PermissionPlan {
+		t.Errorf("expected plan, got %s", mock.Calls[0].Permission)
+	}
+}
+
 func TestRunLoop_InteractiveMode(t *testing.T) {
 	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
 	cfg := Config{Content: "test", Iterations: 1, Interactive: true, Runner: mock, Stderr: &bytes.Buffer{}}
@@ -853,6 +862,26 @@ func TestRunLoop_MaxCostZeroDisabled(t *testing.T) {
 	}
 	if len(mock.Calls) != 3 {
 		t.Errorf("expected 3 calls when MaxCost=0, got %d", len(mock.Calls))
+	}
+}
+
+func TestRun_PlanAndTrustMutuallyExclusive(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		Plan:       true,
+		Trust:      true,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+		Stdout:     &bytes.Buffer{},
+	}
+	err := Run(cfg)
+	if err == nil {
+		t.Fatal("expected error when both --plan and --trust are set")
+	}
+	if !strings.Contains(err.Error(), "plan") || !strings.Contains(err.Error(), "trust") {
+		t.Errorf("error should mention both flags, got: %v", err)
 	}
 }
 

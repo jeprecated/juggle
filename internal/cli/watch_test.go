@@ -289,6 +289,14 @@ func TestBuildRunOptions(t *testing.T) {
 		}
 	})
 
+	t.Run("plan mode", func(t *testing.T) {
+		cfg := Config{Plan: true}
+		opts := buildRunOptions(cfg, "prompt")
+		if opts.Permission != agent.PermissionPlan {
+			t.Errorf("expected plan, got %s", opts.Permission)
+		}
+	})
+
 	t.Run("interactive mode with bypass", func(t *testing.T) {
 		cfg := Config{
 			Interactive:  true,

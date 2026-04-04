@@ -341,7 +341,9 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 	}
 
 	perm := agent.PermissionAcceptEdits
-	if cfg.Trust {
+	if cfg.Plan {
+		perm = agent.PermissionPlan
+	} else if cfg.Trust {
 		perm = agent.PermissionBypass
 	}
 
