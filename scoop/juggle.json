@@ -1,6 +1,6 @@
 {
     "version": "0.1.0",
-    "description": "Run AI agent loops with good UX - define tasks via TUI/CLI, modify while running",
+    "description": "Minimal agent loop runner",
     "homepage": "https://github.com/ohare93/juggle",
     "license": "MIT",
     "architecture": {
