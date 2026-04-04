@@ -19,6 +19,8 @@ const (
 	TypeCodex Type = "codex"
 	// TypeCustom is a user-defined agent CLI provider
 	TypeCustom Type = "custom"
+	// TypeGemini is the Google Gemini CLI provider
+	TypeGemini Type = "gemini"
 )
 
 // String returns the string representation
@@ -28,7 +30,7 @@ func (p Type) String() string {
 
 // IsValid returns true if the provider type is known
 func (p Type) IsValid() bool {
-	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex || p == TypeCustom
+	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex || p == TypeCustom || p == TypeGemini
 }
 
 // RunMode defines how the agent should be executed

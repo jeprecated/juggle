@@ -262,8 +262,8 @@ func TestGet(t *testing.T) {
 
 func TestValidProviders(t *testing.T) {
 	providers := ValidProviders()
-	if len(providers) != 4 {
-		t.Fatalf("expected 4 providers, got %d", len(providers))
+	if len(providers) != 5 {
+		t.Fatalf("expected 5 providers, got %d", len(providers))
 	}
 
 	// Check all providers are present
