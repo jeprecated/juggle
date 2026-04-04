@@ -21,7 +21,10 @@ import (
 var version = "dev"
 
 // SetVersion sets the version string (injected at build time).
-func SetVersion(v string) { version = v }
+func SetVersion(v string) {
+	version = v
+	rootCmd.Version = v
+}
 
 // ErrInterrupted is returned when the run is stopped by a signal.
 var ErrInterrupted = errors.New("interrupted by signal")
@@ -115,6 +118,12 @@ func init() {
 	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
 	f.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
 
+	// Hide less-common flags to reduce noise in default help output
+	_ = f.MarkHidden("fuzz")
+	_ = f.MarkHidden("interactive")
+	_ = f.MarkHidden("show-thinking")
+	_ = f.MarkHidden("provider")
+
 	rootCmd.AddCommand(completionCmd)
 }
 
@@ -137,20 +146,40 @@ var completionCmd = &cobra.Command{
 }
 
 var rootCmd = &cobra.Command{
-	Use:   "juggle [prompt-content...]",
-	Short: "Minimal agent loop runner",
-	Long:  "Run an AI agent in a loop. All positional args are prompt content (strings or @file references).",
-	Args: func(cmd *cobra.Command, args []string) error {
+	Use:     "juggle [prompt-content...]",
+	Short:   "Minimal agent loop runner",
+	Version: "dev",
+	Long: `Run an AI agent in a loop. All positional args are prompt content (strings or @file references).
+
+Shell completion:
+  juggle completion bash > /etc/bash_completion.d/juggle
+  juggle completion zsh > ~/.zshrc
+  juggle completion fish > ~/.config/fish/completions/juggle.fish`,
+	Example: `  # Basic: run 3 iterations
+  juggle "fix the failing tests" -n 3
+
+  # With a prompt file and trust mode
+  juggle @task.md --trust -n 10
+
+  # Watch mode: pick up tasks from a directory
+  juggle --watch ./tasks/ @rules.md
+
+  # With hooks: run tests after each iteration, stop when they pass
+  juggle --cmd-after "npm test" --stop-when "npm test" @task.md
+
+  # Multi-phase: run a tidy agent after each iteration
+  juggle --agent-after @tidy @task.md -n 5`,
+	Args:              cobra.ArbitraryArgs,
+	ValidArgsFunction: completeArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
 		watchFlag, _ := cmd.Flags().GetString("watch")
 		if watchFlag == "" && len(args) == 0 {
-			return fmt.Errorf("requires at least 1 arg when --watch is not set")
+			return cmd.Help()
 		}
-		return nil
+		return run(cmd, args)
 	},
-	ValidArgsFunction: completeArgs,
-	RunE:              run,
-	SilenceUsage:      true,
-	SilenceErrors:     true,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 // Execute runs the root command.

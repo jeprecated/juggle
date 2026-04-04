@@ -290,6 +290,57 @@ func TestRunLoop_ShutdownPrintsSummary(t *testing.T) {
 	}
 }
 
+func TestHelpExamplesExist(t *testing.T) {
+	checks := []string{
+		`"fix the failing tests"`,
+		"@task.md",
+		"--watch",
+		"--trust",
+	}
+	for _, want := range checks {
+		if !strings.Contains(rootCmd.Example, want) {
+			t.Errorf("rootCmd.Example missing %q", want)
+		}
+	}
+}
+
+func TestHelpLongContainsCompletion(t *testing.T) {
+	if !strings.Contains(rootCmd.Long, "completion") {
+		t.Error("Long description should mention shell completion")
+	}
+}
+
+func TestSetVersionUpdatesRootCmd(t *testing.T) {
+	prev := rootCmd.Version
+	defer func() { rootCmd.Version = prev; version = prev }()
+
+	SetVersion("9.9.9")
+	if rootCmd.Version != "9.9.9" {
+		t.Errorf("rootCmd.Version = %q, want 9.9.9", rootCmd.Version)
+	}
+}
+
+func TestNoArgsExecuteShowsHelp(t *testing.T) {
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{})
+	defer func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+	}()
+
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Fatalf("no-args should show help without error, got: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "fix the failing tests") {
+		t.Errorf("help output should contain examples, got:\n%s", output)
+	}
+}
+
 func TestComputeDelay(t *testing.T) {
 	t.Run("zero delay and fuzz", func(t *testing.T) {
 		if d := computeDelay(0, 0); d != 0 {

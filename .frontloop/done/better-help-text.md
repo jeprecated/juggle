@@ -34,3 +34,17 @@ Make juggle self-documenting for first-time users. Show the most important flags
 - Cobra supports `cmd.GroupID` for flag grouping
 - Current behavior: no-args returns error "requires at least 1 arg" — change to show help when no args AND no --watch
 - Consider a short vs long help: `juggle --help` shows full, `juggle` with no args shows short with examples
+
+## Completion Summary
+
+- Changed `rootCmd.Args` from custom error validator to `cobra.ArbitraryArgs`; moved no-args check into `RunE` which calls `cmd.Help()` and returns nil
+- Added `rootCmd.Example` with 5 concrete workflow examples
+- Added `rootCmd.Long` with shell completion instructions
+- Added `Version: "dev"` to rootCmd; updated `SetVersion()` to also set `rootCmd.Version`
+- Marked `--fuzz`, `--interactive`, `--show-thinking`, `--provider` as hidden flags to reduce noise
+- Added 4 tests: `TestHelpExamplesExist`, `TestHelpLongContainsCompletion`, `TestSetVersionUpdatesRootCmd`, `TestNoArgsExecuteShowsHelp`
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/juggle_test.go` (modified)
