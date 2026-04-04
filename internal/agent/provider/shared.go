@@ -35,6 +35,8 @@ func streamOutput(reader io.Reader, buf *strings.Builder, writer io.Writer) {
 func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, accumulator *StreamAccumulator, showThinking bool) {
 	parser := NewJSONLinesParser(reader)
 
+	var lastTool string // tracks last tool name for dedup
+
 	for {
 		event, err := parser.Next()
 		if err == io.EOF {
@@ -57,8 +59,12 @@ func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, 
 					case "text":
 						// Stream text output in real-time
 						fmt.Fprint(writer, block.Text)
+						lastTool = "" // reset dedup on text output
 					case "tool_use":
-						fmt.Fprintf(writer, "\n[Tool: %s]\n", block.Name)
+						if block.Name != lastTool {
+							fmt.Fprintf(writer, "\n[Tool: %s]\n", block.Name)
+							lastTool = block.Name
+						}
 					case "thinking":
 						if showThinking {
 							fmt.Fprintln(writer, "🤔 Thinking...")
@@ -69,9 +75,12 @@ func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, 
 			}
 
 		case "system":
-			// Show tool events
+			// Show tool events (deduplicated)
 			if event.ToolName != "" && (event.Subtype == "tool_use" || strings.HasPrefix(event.Subtype, "tool_")) {
-				fmt.Fprintf(writer, "\n[Tool: %s]\n", event.ToolName)
+				if event.ToolName != lastTool {
+					fmt.Fprintf(writer, "\n[Tool: %s]\n", event.ToolName)
+					lastTool = event.ToolName
+				}
 			}
 		}
 	}

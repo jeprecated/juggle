@@ -3,22 +3,22 @@ package cli
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
 // ResolveArgs processes positional arguments.
 // Args starting with @ are file paths (contents read and returned).
+// Bare @name (no /) checks $JUGGLE_PROMPTS/<name> and <name>.md as fallbacks.
 // All other args are returned as-is.
 func ResolveArgs(args []string) ([]string, error) {
 	resolved := make([]string, 0, len(args))
 	for _, arg := range args {
-		if !strings.HasPrefix(arg, "@") && !strings.ContainsAny(arg, " \t\n") {
-			return nil, fmt.Errorf("invalid argument %q: args must start with @ (file reference) or be quoted prompt text", arg)
-		}
 		if strings.HasPrefix(arg, "@") {
-			data, err := os.ReadFile(arg[1:])
+			name := arg[1:]
+			data, err := resolveFile(name)
 			if err != nil {
-				return nil, fmt.Errorf("failed to read %s: %w", arg[1:], err)
+				return nil, err
 			}
 			resolved = append(resolved, string(data))
 		} else {
@@ -26,4 +26,43 @@ func ResolveArgs(args []string) ([]string, error) {
 		}
 	}
 	return resolved, nil
+}
+
+// resolveFile reads a file reference, trying JUGGLE_PROMPTS fallbacks for bare names.
+// Fallback chain: literal path → $JUGGLE_PROMPTS/name → $JUGGLE_PROMPTS/name.md → error.
+func resolveFile(name string) ([]byte, error) {
+	// Try literal path first
+	data, err := os.ReadFile(name)
+	if err == nil {
+		return data, nil
+	}
+	origErr := err
+
+	// Only try JUGGLE_PROMPTS for bare names (no path separator)
+	if strings.Contains(name, "/") {
+		return nil, fmt.Errorf("failed to read %s: %w", name, origErr)
+	}
+
+	promptsDir := os.Getenv("JUGGLE_PROMPTS")
+	if promptsDir == "" {
+		return nil, fmt.Errorf("failed to read %s: %w", name, origErr)
+	}
+
+	// Try $JUGGLE_PROMPTS/name
+	candidate := filepath.Join(promptsDir, name)
+	data, err = os.ReadFile(candidate)
+	if err == nil {
+		return data, nil
+	}
+
+	// Try $JUGGLE_PROMPTS/name.md (only if name doesn't already have an extension)
+	if filepath.Ext(name) == "" {
+		candidate = filepath.Join(promptsDir, name+".md")
+		data, err = os.ReadFile(candidate)
+		if err == nil {
+			return data, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to read %s (also tried %s): %w", name, promptsDir, origErr)
 }

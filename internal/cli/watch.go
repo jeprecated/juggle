@@ -76,6 +76,7 @@ func RunWatch(cfg Config) error {
 // Re-reads the task file each iteration to pick up agent-appended progress.
 func runWatchTask(cfg Config, taskFile, filename string) error {
 	max := cfg.Iterations
+	formatter := NewLoopFormatter(cfg.Stderr)
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -83,6 +84,9 @@ func runWatchTask(cfg Config, taskFile, filename string) error {
 	backoff := initialBackoff
 
 	for i := 1; max == 0 || i <= max; i++ {
+		formatter.IterationHeader(i, max, filename)
+		start := time.Now()
+
 		// Re-read task file each iteration
 		contents, err := os.ReadFile(taskFile)
 		if err != nil {
@@ -132,8 +136,9 @@ func runWatchTask(cfg Config, taskFile, filename string) error {
 			continue
 		}
 
-		// Success: reset backoff
+		// Success: reset backoff and print status
 		backoff = initialBackoff
+		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
 		// Wait between iterations (skip after last)
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {

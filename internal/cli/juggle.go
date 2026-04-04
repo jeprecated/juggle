@@ -69,6 +69,26 @@ func init() {
 	f.DurationVar(&flags.maxWait, "max-wait", 0, "max rate limit wait")
 	f.BoolVar(&flags.dryRun, "dry-run", false, "show prompt, don't run")
 	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
+
+	rootCmd.AddCommand(completionCmd)
+}
+
+var completionCmd = &cobra.Command{
+	Use:   "completion [bash|zsh|fish]",
+	Short: "Generate shell completion script",
+	Args:  cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		switch args[0] {
+		case "bash":
+			return rootCmd.GenBashCompletion(os.Stdout)
+		case "zsh":
+			return rootCmd.GenZshCompletion(os.Stdout)
+		case "fish":
+			return rootCmd.GenFishCompletion(os.Stdout, true)
+		default:
+			return fmt.Errorf("unsupported shell: %s (use bash, zsh, or fish)", args[0])
+		}
+	},
 }
 
 var rootCmd = &cobra.Command{
@@ -82,9 +102,10 @@ var rootCmd = &cobra.Command{
 		}
 		return nil
 	},
-	RunE:          run,
-	SilenceUsage:  true,
-	SilenceErrors: true,
+	ValidArgsFunction: completeArgs,
+	RunE:              run,
+	SilenceUsage:      true,
+	SilenceErrors:     true,
 }
 
 // Execute runs the root command.
@@ -151,6 +172,7 @@ func RunLoop(cfg Config) error {
 	}
 
 	max := cfg.Iterations
+	formatter := NewLoopFormatter(cfg.Stderr)
 
 	// Rate limit backoff state
 	const initialBackoff = 30 * time.Second
@@ -158,6 +180,9 @@ func RunLoop(cfg Config) error {
 	backoff := initialBackoff
 
 	for i := 1; max == 0 || i <= max; i++ {
+		formatter.IterationHeader(i, max, "")
+		start := time.Now()
+
 		prompt := BuildPrompt(cfg.Content, i, max)
 		opts := buildRunOptions(cfg, prompt)
 
@@ -197,8 +222,9 @@ func RunLoop(cfg Config) error {
 			continue
 		}
 
-		// Success: reset backoff
+		// Success: reset backoff and print status
 		backoff = initialBackoff
+		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
 		// Wait between iterations (skip after last)
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {

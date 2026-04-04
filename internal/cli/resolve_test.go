@@ -17,10 +17,13 @@ func TestResolveArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("bare words rejected", func(t *testing.T) {
-		_, err := ResolveArgs([]string{"loop"})
-		if err == nil {
-			t.Fatal("expected error for bare word arg")
+	t.Run("bare words pass through as prompt text", func(t *testing.T) {
+		got, err := ResolveArgs([]string{"what?"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != "what?" {
+			t.Errorf("got %v, want [what?]", got)
 		}
 	})
 
@@ -69,6 +72,100 @@ func TestResolveArgs(t *testing.T) {
 		}
 		if len(got) != 0 {
 			t.Errorf("expected empty, got %v", got)
+		}
+	})
+
+	t.Run("bare @name resolves from JUGGLE_PROMPTS", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "TDD.md"), []byte("test first"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@TDD"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != "test first" {
+			t.Errorf("got %v, want [test first]", got)
+		}
+	})
+
+	t.Run("bare @name with extension resolves from JUGGLE_PROMPTS", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "TDD.md"), []byte("test first"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@TDD.md"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != "test first" {
+			t.Errorf("got %v, want [test first]", got)
+		}
+	})
+
+	t.Run("bare @name without .md auto-suffixes", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "review.md"), []byte("review code"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@review"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != 1 || got[0] != "review code" {
+			t.Errorf("got %v, want [review code]", got)
+		}
+	})
+
+	t.Run("literal path wins over JUGGLE_PROMPTS", func(t *testing.T) {
+		promptsDir := t.TempDir()
+		os.WriteFile(filepath.Join(promptsDir, "task.md"), []byte("from prompts"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", promptsDir)
+
+		localDir := t.TempDir()
+		localFile := filepath.Join(localDir, "task.md")
+		os.WriteFile(localFile, []byte("from local"), 0644)
+
+		got, err := ResolveArgs([]string{"@" + localFile})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "from local" {
+			t.Errorf("got %q, want literal path to win", got[0])
+		}
+	})
+
+	t.Run("path with / does not try JUGGLE_PROMPTS", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		_, err := ResolveArgs([]string{"@./nonexistent/file.md"})
+		if err == nil {
+			t.Fatal("expected error for path with /")
+		}
+	})
+
+	t.Run("bare @name without JUGGLE_PROMPTS gives original error", func(t *testing.T) {
+		t.Setenv("JUGGLE_PROMPTS", "")
+
+		_, err := ResolveArgs([]string{"@nonexistent"})
+		if err == nil {
+			t.Fatal("expected error when JUGGLE_PROMPTS unset")
+		}
+	})
+
+	t.Run("exact name match preferred over .md suffix", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "PLAN"), []byte("exact match"), 0644)
+		os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("md match"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@PLAN"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "exact match" {
+			t.Errorf("got %q, want exact name to win over .md suffix", got[0])
 		}
 	})
 }
