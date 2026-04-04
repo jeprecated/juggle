@@ -117,6 +117,10 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 		args = append(args, "--max-turns", fmt.Sprintf("%d", opts.MaxTurns))
 	}
 
+	if opts.MCPConfig != "" {
+		args = append(args, "--mcp-config", opts.MCPConfig)
+	}
+
 	args = append(args, "--output-format", "stream-json", "--verbose")
 	args = append(args, "-p", "-")
 

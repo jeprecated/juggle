@@ -64,6 +64,7 @@ type Config struct {
 	AllowedTools      []string      // Restrict agent to these tools only (mutually exclusive with DisallowedTools)
 	DisallowedTools   []string      // Block specific tools (mutually exclusive with AllowedTools)
 	MaxTurns          int           // Cap tool-use turns per iteration (0 = provider default)
+	MCPConfig         string        // Path to MCP server config file
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -170,6 +171,7 @@ var flags struct {
 	allowedTools    []string
 	disallowedTools []string
 	maxTurns        int
+	mcpConfig       string
 }
 
 func init() {
@@ -203,6 +205,7 @@ func init() {
 	f.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
 	f.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
 	f.IntVar(&flags.maxTurns, "max-turns", 0, "cap tool-use turns per iteration (0 = provider default)")
+	f.StringVar(&flags.mcpConfig, "mcp-config", "", "path to MCP server config file")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -297,6 +300,12 @@ func run(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("--agent-post: %w", err)
 	}
 
+	if flags.mcpConfig != "" {
+		if _, err := os.Stat(flags.mcpConfig); err != nil {
+			return fmt.Errorf("--mcp-config: file not found: %s", flags.mcpConfig)
+		}
+	}
+
 	hooksSettingsFile, hooksCleanup, err := buildHooksSettingsFile(flags.hooks, flags.hooksFile)
 	if err != nil {
 		return fmt.Errorf("hooks: %w", err)
@@ -333,6 +342,7 @@ func run(cmd *cobra.Command, args []string) error {
 		AllowedTools:      flags.allowedTools,
 		DisallowedTools:   flags.disallowedTools,
 		MaxTurns:          flags.maxTurns,
+		MCPConfig:         flags.mcpConfig,
 	}
 
 	// Build runner from provider flag

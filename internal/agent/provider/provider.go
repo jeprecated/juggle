@@ -66,6 +66,7 @@ type RunOptions struct {
 	AllowedTools      []string        // restrict agent to these tools only (mutually exclusive with DisallowedTools)
 	DisallowedTools   []string        // block specific tools (mutually exclusive with AllowedTools)
 	MaxTurns          int             // cap tool-use turns per iteration (0 = provider default)
+	MCPConfig         string          // path to MCP server config file (Claude-specific)
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

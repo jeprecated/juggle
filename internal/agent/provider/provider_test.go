@@ -456,6 +456,31 @@ func TestClaudeHeadlessArgs_MaxTurns_Zero(t *testing.T) {
 	}
 }
 
+func TestClaudeHeadlessArgs_MCPConfig(t *testing.T) {
+	opts := RunOptions{MCPConfig: "/path/to/mcp.json"}
+	args := claudeHeadlessArgs(opts)
+	found := false
+	for i, a := range args {
+		if a == "--mcp-config" && i+1 < len(args) && args[i+1] == "/path/to/mcp.json" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected --mcp-config /path/to/mcp.json in args, got: %v", args)
+	}
+}
+
+func TestClaudeHeadlessArgs_MCPConfig_Empty(t *testing.T) {
+	opts := RunOptions{}
+	args := claudeHeadlessArgs(opts)
+	for _, a := range args {
+		if a == "--mcp-config" {
+			t.Errorf("unexpected --mcp-config flag when MCPConfig is empty: %v", args)
+		}
+	}
+}
+
 func TestOpenCodeProvider_Type(t *testing.T) {
 	p := NewOpenCodeProvider()
 	if p.Type() != TypeOpenCode {

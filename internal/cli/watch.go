@@ -358,5 +358,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		AllowedTools:      cfg.AllowedTools,
 		DisallowedTools:   cfg.DisallowedTools,
 		MaxTurns:          cfg.MaxTurns,
+		MCPConfig:         cfg.MCPConfig,
 	}
 }

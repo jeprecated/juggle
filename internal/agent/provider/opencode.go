@@ -76,6 +76,9 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	if opts.MaxTurns > 0 {
 		fmt.Fprintf(os.Stderr, "warning: --max-turns is not supported by the opencode provider and will be ignored\n")
 	}
+	if opts.MCPConfig != "" {
+		fmt.Fprintf(os.Stderr, "warning: --mcp-config is not supported by the opencode provider and will be ignored\n")
+	}
 
 	// OpenCode uses: opencode run "prompt"
 	args := []string{"run"}
