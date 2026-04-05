@@ -13,11 +13,30 @@ A Ralph Loop runs an AI agent repeatedly, each iteration starting a new session 
 - **Cost-aware.** Built for overnight runs with `--max-cost`, `--max-failures`, and automatic quota backoff.
 - **Composable.** Shell hooks (`--cmd-after`, `--stop-when`), phase agents (`--agent-before`, `--agent-after`), and environment variables let you wire in verification gates without juggle imposing a workflow.
 
+<details>
+<summary><strong>Why I made this</strong></summary>
+
+I kept running into the same problem: I wanted to run different kinds of agent loops -- overnight "find a problem and fix it" runs, trigger-based loops that watch a file for updates, and Ralph Loops that work through a list of tasks. None of the existing tools did all of these. My own scripts were too rigid. The Claude Code `/loop` command builds up context instead of starting fresh. And none of them let me reuse prompt templates.
+
+Juggle exists to solve all of this in one tool -- strong enough to trust with your workflow, flexible enough to fit any workflow.
+
+</details>
+
 ## Quick start
 
 ```bash
 # Run 3 iterations on a task
 juggle "fix the failing tests" -n 3
+```
+
+```bash
+# Leave it running overnight -- find and fix issues autonomously
+juggle "Find one issue to fix or improvement to make. Check git log to avoid repeating past work." -n 20 --max-cost 10
+```
+
+```bash
+# Work through a todo list while you sleep
+juggle "Read TODO.md and implement the next unchecked item. Mark it done when complete." -n 0 --max-cost 20
 ```
 
 ```bash
