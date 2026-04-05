@@ -16,3 +16,14 @@ Add a bounds check for `--retries` to reject negative values. Currently `--retri
 - Negative --retries returns a clear error message
 - Add test for negative retries validation
 - Add test for --allowed-tools and --disallowed-tools mutual exclusivity (validation code exists at line 528 but has no test)
+
+## Completion Summary
+
+- Added `cfg.Retries < 0` guard in `Run()` returning `--retries must be non-negative`
+- Added `TestRun_NegativeRetriesError` test using TDD (red → green)
+- Note: `TestRun_AllowedAndDisallowedToolsBothSetError` already existed; no new test needed
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/juggle_test.go` (modified)

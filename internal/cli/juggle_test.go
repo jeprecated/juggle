@@ -1007,6 +1007,25 @@ func TestRun_AllowedAndDisallowedToolsBothSetError(t *testing.T) {
 	}
 }
 
+func TestRun_NegativeRetriesError(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		Retries:    -1,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+		Stdout:     &bytes.Buffer{},
+	}
+	err := Run(cfg)
+	if err == nil {
+		t.Fatal("expected error when --retries is negative")
+	}
+	if !strings.Contains(err.Error(), "retries") {
+		t.Errorf("error should mention --retries, got: %v", err)
+	}
+}
+
 func TestRunLoop_AllowedToolsPassedToRunner(t *testing.T) {
 	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
 	cfg := Config{

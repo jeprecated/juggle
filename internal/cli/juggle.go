@@ -549,6 +549,10 @@ func Run(cfg Config) error {
 		return fmt.Errorf("--allowed-tools and --disallowed-tools are mutually exclusive")
 	}
 
+	if cfg.Retries < 0 {
+		return fmt.Errorf("--retries must be non-negative")
+	}
+
 	if cfg.Workers > 1 && cfg.Watch == "" {
 		return fmt.Errorf("--workers requires --watch")
 	}
