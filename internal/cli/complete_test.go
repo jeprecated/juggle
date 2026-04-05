@@ -8,6 +8,132 @@ import (
 	"github.com/spf13/cobra"
 )
 
+func TestFindPromptDirs(t *testing.T) {
+	t.Run("finds dir named prompts at root", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, "prompts"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 1 || dirs[0] != filepath.Join(root, "prompts") {
+			t.Errorf("expected [prompts dir], got %v", dirs)
+		}
+	})
+
+	t.Run("finds dir containing prompts in name", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, "juggle-prompts"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 1 {
+			t.Fatalf("expected 1 dir, got %v", dirs)
+		}
+	})
+
+	t.Run("finds nested prompts dir", func(t *testing.T) {
+		root := t.TempDir()
+		os.MkdirAll(filepath.Join(root, "docs", "prompts"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 1 || dirs[0] != filepath.Join(root, "docs", "prompts") {
+			t.Errorf("expected [docs/prompts], got %v", dirs)
+		}
+	})
+
+	t.Run("does not find non-prompts dirs", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, "plans"), 0755)
+		os.MkdirAll(filepath.Join(root, "docs", "plans"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 0 {
+			t.Errorf("expected no dirs, got %v", dirs)
+		}
+	})
+
+	t.Run("skips hidden dirs", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, ".hidden-prompts"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 0 {
+			t.Errorf("expected no dirs (hidden skipped), got %v", dirs)
+		}
+	})
+
+	t.Run("does not descend into hidden dirs", func(t *testing.T) {
+		root := t.TempDir()
+		os.MkdirAll(filepath.Join(root, ".hidden", "prompts"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 0 {
+			t.Errorf("expected no dirs (inside hidden dir), got %v", dirs)
+		}
+	})
+
+	t.Run("finds multiple prompts dirs", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, "prompts"), 0755)
+		os.MkdirAll(filepath.Join(root, "docs", "prompts"), 0755)
+		dirs := findPromptDirs(root)
+		if len(dirs) != 2 {
+			t.Errorf("expected 2 dirs, got %v", dirs)
+		}
+	})
+}
+
+func TestCompleteArgsWithCwdPrompts(t *testing.T) {
+	t.Run("finds md files in cwd prompts subdir", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, "prompts"), 0755)
+		os.WriteFile(filepath.Join(root, "prompts", "mytemplate.md"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", "")
+
+		orig, _ := os.Getwd()
+		os.Chdir(root)
+		defer os.Chdir(orig)
+
+		completions, _ := completeArgs(nil, nil, "@my")
+		if len(completions) != 1 || completions[0] != "@mytemplate" {
+			t.Errorf("expected [@mytemplate], got %v", completions)
+		}
+	})
+
+	t.Run("deduplicates across JUGGLE_PROMPTS and cwd prompts", func(t *testing.T) {
+		root := t.TempDir()
+		promptsEnv := t.TempDir()
+		os.Mkdir(filepath.Join(root, "prompts"), 0755)
+		os.WriteFile(filepath.Join(root, "prompts", "shared.md"), []byte(""), 0644)
+		os.WriteFile(filepath.Join(promptsEnv, "shared.md"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", promptsEnv)
+
+		orig, _ := os.Getwd()
+		os.Chdir(root)
+		defer os.Chdir(orig)
+
+		completions, _ := completeArgs(nil, nil, "@")
+		count := 0
+		for _, c := range completions {
+			if c == "@shared" {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("expected @shared exactly once, got %v", completions)
+		}
+	})
+
+	t.Run("only md files from cwd prompts dirs", func(t *testing.T) {
+		root := t.TempDir()
+		os.Mkdir(filepath.Join(root, "prompts"), 0755)
+		os.WriteFile(filepath.Join(root, "prompts", "good.md"), []byte(""), 0644)
+		os.WriteFile(filepath.Join(root, "prompts", "skip.txt"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", "")
+
+		orig, _ := os.Getwd()
+		os.Chdir(root)
+		defer os.Chdir(orig)
+
+		completions, _ := completeArgs(nil, nil, "@")
+		if len(completions) != 1 || completions[0] != "@good" {
+			t.Errorf("expected [@good] only, got %v", completions)
+		}
+	})
+}
+
 func TestCompleteArgs(t *testing.T) {
 	t.Run("non-@ arg returns no completions", func(t *testing.T) {
 		completions, directive := completeArgs(nil, nil, "hello")
