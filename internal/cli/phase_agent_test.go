@@ -289,6 +289,75 @@ func TestRunLoop_PhaseAgent_ReceivesJuggleIterationEnv(t *testing.T) {
 	checkEnv(2, "JUGGLE_ITERATION")
 }
 
+func TestRunLoop_PhaseAgent_ReceivesRunLevelEnvVars(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "pre"},
+		&agent.RunResult{Output: "before"},
+		&agent.RunResult{Output: "main"},
+		&agent.RunResult{Output: "after"},
+		&agent.RunResult{Output: "post"},
+	)
+	cfg := Config{
+		Content:     "main task",
+		Iterations:  1,
+		AgentPre:    "pre prompt",
+		AgentBefore: "before prompt",
+		AgentAfter:  "after prompt",
+		AgentPost:   "post prompt",
+		RunID:       "test-run-id",
+		Model:       "test-model",
+		Provider:    "test-provider",
+		Label:       "test-label",
+		Runner:      mock,
+		Stderr:      &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 5 {
+		t.Fatalf("expected 5 calls, got %d", len(mock.Calls))
+	}
+	checkHasVar := func(idx int, name, value string) {
+		t.Helper()
+		want := name + "=" + value
+		for _, e := range mock.Calls[idx].Env {
+			if e == want {
+				return
+			}
+		}
+		t.Errorf("call[%d] missing %s, env: %v", idx, want, mock.Calls[idx].Env)
+	}
+	// call[0]=pre, call[1]=before, call[2]=main, call[3]=after, call[4]=post
+	for _, idx := range []int{0, 1, 3, 4} {
+		checkHasVar(idx, "JUGGLE_RUN_ID", "test-run-id")
+		checkHasVar(idx, "JUGGLE_MODEL", "test-model")
+		checkHasVar(idx, "JUGGLE_PROVIDER", "test-provider")
+		checkHasVar(idx, "JUGGLE_LABEL", "test-label")
+	}
+}
+
+func TestPhaseEnv_EnvSlice_NoLabelOmitsLabelVar(t *testing.T) {
+	env := phaseEnv{phase: "pre", iteration: 0, maxIter: 1, runID: "r", model: "m", provider: "p", label: ""}
+	for _, e := range env.envSlice() {
+		if strings.HasPrefix(e, "JUGGLE_LABEL=") {
+			t.Errorf("JUGGLE_LABEL should not be set when label is empty, got: %q", e)
+		}
+	}
+}
+
+func TestPhaseEnv_EnvSlice_LabelIncludedWhenSet(t *testing.T) {
+	env := phaseEnv{phase: "pre", iteration: 0, maxIter: 1, runID: "r", model: "m", provider: "p", label: "my-label"}
+	found := false
+	for _, e := range env.envSlice() {
+		if e == "JUGGLE_LABEL=my-label" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected JUGGLE_LABEL=my-label in env slice")
+	}
+}
+
 // --- BuildPhaseContent (multi-value merging helper) ---
 
 func TestBuildPhaseContent_JoinsResolvedValues(t *testing.T) {

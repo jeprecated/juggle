@@ -263,7 +263,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		if cfg.Verbose {
 			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPre)
 		}
-		env := phaseEnv{phase: "pre", iteration: 0, maxIter: max}
+		env := phaseEnv{phase: "pre", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
 		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
 			return fmt.Errorf("agent-pre failed: %w", err)
 		}
@@ -285,7 +285,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			if cfg.Verbose {
 				fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentBefore)
 			}
-			env := phaseEnv{phase: "before", iteration: i, maxIter: max}
+			env := phaseEnv{phase: "before", iteration: i, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
 			if err := runPhaseAgent(cfg, cfg.AgentBefore, env, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "agent-before failed (skipping iteration %d): %v\n", i, err)
 				continue
@@ -458,7 +458,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			if cfg.Verbose {
 				fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentAfter)
 			}
-			env := phaseEnv{phase: "after", iteration: i, maxIter: max}
+			env := phaseEnv{phase: "after", iteration: i, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
 			if err := runPhaseAgent(cfg, cfg.AgentAfter, env, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "agent-after failed (iteration %d): %v\n", i, err)
 			}
@@ -531,7 +531,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		if cfg.Verbose {
 			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
 		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max}
+		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
 		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
 			return fmt.Errorf("agent-post failed: %w", err)
 		}

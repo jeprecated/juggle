@@ -25,15 +25,26 @@ type phaseEnv struct {
 	phase     string // pre, before, after, post
 	iteration int    // current iteration number (0 for pre/post)
 	maxIter   int    // max iterations
+	runID     string // stable UUID for the entire run
+	model     string // model name
+	provider  string // provider name
+	label     string // optional run label
 }
 
 // envSlice returns the phase environment as KEY=VALUE strings.
 func (p phaseEnv) envSlice() []string {
-	return []string{
+	env := []string{
 		"JUGGLE_PHASE=" + p.phase,
 		"JUGGLE_ITERATION=" + strconv.Itoa(p.iteration),
 		"JUGGLE_MAX_ITERATIONS=" + strconv.Itoa(p.maxIter),
+		"JUGGLE_RUN_ID=" + p.runID,
+		"JUGGLE_MODEL=" + p.model,
+		"JUGGLE_PROVIDER=" + p.provider,
 	}
+	if p.label != "" {
+		env = append(env, "JUGGLE_LABEL="+p.label)
+	}
+	return env
 }
 
 // runPhaseAgent executes a phase agent session with the given prompt.
