@@ -2,6 +2,10 @@
 /juggler
 /juggle
 
+# Nix build results
+/result
+/result-*
+
 # Devbox
 /.devbox/
 
