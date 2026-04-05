@@ -2,6 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -473,6 +476,80 @@ func TestRunLoop_AgentPost_PrintsHeader(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Agent Post") {
 		t.Errorf("expected 'Agent Post' header in stderr, got: %q", stderr.String())
+	}
+}
+
+// --- shutdown interrupt ---
+
+// blockingRunner blocks until its RunOptions.Context is cancelled.
+type blockingRunner struct {
+	called chan struct{}
+}
+
+func (b *blockingRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
+	close(b.called)
+	if opts.Context != nil {
+		<-opts.Context.Done()
+	}
+	return nil, fmt.Errorf("context cancelled: %w", opts.Context.Err())
+}
+
+func TestRunPhaseAgent_ShutdownInterrupts(t *testing.T) {
+	shutdown := make(chan struct{})
+	runner := &blockingRunner{called: make(chan struct{})}
+
+	cfg := Config{
+		Runner:   runner,
+		Shutdown: shutdown,
+		ForceCtx: context.Background(),
+		Stderr:   &bytes.Buffer{},
+	}
+	env := phaseEnv{phase: "pre", runID: "test"}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runPhaseAgent(cfg, "test prompt", env, cfg.Stderr)
+	}()
+
+	<-runner.called
+	close(shutdown)
+
+	err := <-errCh
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+}
+
+func TestRunPhaseAgent_NormalCompletionWithShutdown(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "done"})
+	cfg := Config{
+		Runner:   mock,
+		Shutdown: make(chan struct{}),
+		ForceCtx: context.Background(),
+		Stderr:   &bytes.Buffer{},
+	}
+	env := phaseEnv{phase: "before", runID: "test"}
+
+	err := runPhaseAgent(cfg, "test prompt", env, cfg.Stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunPhaseAgent_NilShutdownStillWorks(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "done"})
+	cfg := Config{
+		Runner: mock,
+		Stderr: &bytes.Buffer{},
+	}
+	env := phaseEnv{phase: "post", runID: "test"}
+
+	err := runPhaseAgent(cfg, "test prompt", env, cfg.Stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

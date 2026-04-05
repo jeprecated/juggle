@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -49,12 +50,44 @@ func (p phaseEnv) envSlice() []string {
 
 // runPhaseAgent executes a phase agent session with the given prompt.
 // It reuses the main Config's Runner with a fresh prompt and phase env vars.
+// Phase agents are interruptible by the first shutdown signal (Ctrl+C),
+// unlike main iterations which finish their current run before stopping.
 // Returns an error if the agent exits non-zero or encounters a runner error.
 func runPhaseAgent(cfg Config, prompt string, env phaseEnv, w io.Writer) error {
 	opts := buildRunOptions(cfg, prompt)
+
+	// Phase agents are auxiliary — interrupt on first shutdown signal,
+	// not just the force-kill context.
+	if cfg.Shutdown != nil {
+		ctx := opts.Context
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		cancelCtx, cancel := context.WithCancel(ctx)
+		defer cancel()
+		go func() {
+			select {
+			case <-cfg.Shutdown:
+				cancel()
+			case <-cancelCtx.Done():
+			}
+		}()
+		opts.Context = cancelCtx
+	}
+
 	opts.Env = env.envSlice()
 
 	result, err := cfg.Runner.Run(opts)
+
+	// If shutdown triggered the kill, return ErrInterrupted
+	if err != nil && cfg.Shutdown != nil {
+		select {
+		case <-cfg.Shutdown:
+			return ErrInterrupted
+		default:
+		}
+	}
+
 	if err != nil {
 		return fmt.Errorf("phase agent (%s) runner error: %w", env.phase, err)
 	}

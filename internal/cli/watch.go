@@ -300,6 +300,9 @@ func runWatchTask(cfg Config, taskFile string, stats *runStats) error {
 			}
 			env := phaseEnv{phase: "before", iteration: i, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
 			if err := runPhaseAgent(cfg, cfg.AgentBefore, env, cfg.Stderr); err != nil {
+				if errors.Is(err, ErrInterrupted) {
+					return ErrInterrupted
+				}
 				fmt.Fprintf(cfg.Stderr, "agent-before failed (skipping iteration %d): %v\n", i, err)
 				continue
 			}
@@ -473,6 +476,9 @@ func runWatchTask(cfg Config, taskFile string, stats *runStats) error {
 			}
 			env := phaseEnv{phase: "after", iteration: i, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
 			if err := runPhaseAgent(cfg, cfg.AgentAfter, env, cfg.Stderr); err != nil {
+				if errors.Is(err, ErrInterrupted) {
+					return ErrInterrupted
+				}
 				fmt.Fprintf(cfg.Stderr, "agent-after failed (iteration %d): %v\n", i, err)
 			}
 		}
