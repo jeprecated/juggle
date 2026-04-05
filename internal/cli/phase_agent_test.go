@@ -320,3 +320,111 @@ func TestBuildPhaseContent_SingleValueNoJoin(t *testing.T) {
 		t.Errorf("expected 'only value', got %q", result)
 	}
 }
+
+// --- lifecycle headers ---
+
+func TestRunLoop_AgentPre_PrintsHeader(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "pre done"},
+		&agent.RunResult{Output: "main done"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "main task",
+		Iterations: 1,
+		AgentPre:   "setup prompt",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Agent Pre") {
+		t.Errorf("expected 'Agent Pre' header in stderr, got: %q", stderr.String())
+	}
+}
+
+func TestRunLoop_AgentBefore_PrintsHeader(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "before done"},
+		&agent.RunResult{Output: "main done"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:     "main task",
+		Iterations:  1,
+		AgentBefore: "check prompt",
+		Runner:      mock,
+		Stderr:      &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Agent Before") {
+		t.Errorf("expected 'Agent Before' header in stderr, got: %q", stderr.String())
+	}
+}
+
+func TestRunLoop_AgentAfter_PrintsHeader(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "main done"},
+		&agent.RunResult{Output: "after done"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "main task",
+		Iterations: 1,
+		AgentAfter: "tidy prompt",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Agent After") {
+		t.Errorf("expected 'Agent After' header in stderr, got: %q", stderr.String())
+	}
+}
+
+func TestRunLoop_AgentPost_PrintsHeader(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "main done"},
+		&agent.RunResult{Output: "post done"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "main task",
+		Iterations: 1,
+		AgentPost:  "summarize prompt",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "Agent Post") {
+		t.Errorf("expected 'Agent Post' header in stderr, got: %q", stderr.String())
+	}
+}
+
+func TestRunLoop_AgentPre_VerbosePrintsPrompt(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "pre done"},
+		&agent.RunResult{Output: "main done"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "main task",
+		Iterations: 1,
+		AgentPre:   "my setup prompt",
+		Verbose:    true,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "my setup prompt") {
+		t.Errorf("expected prompt text in verbose stderr, got: %q", stderr.String())
+	}
+}

@@ -220,6 +220,10 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 	// Run agent-pre once before the task loop (failure stops the task)
 	if cfg.AgentPre != "" {
+		formatter.PhaseAgentHeader("pre")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPre)
+		}
 		env := phaseEnv{phase: "pre", iteration: 0, maxIter: max}
 		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
 			return fmt.Errorf("agent-pre failed: %w", err)
@@ -238,6 +242,10 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 		// Run agent-before; skip iteration on failure
 		if cfg.AgentBefore != "" {
+			formatter.PhaseAgentHeader("before")
+			if cfg.Verbose {
+				fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentBefore)
+			}
 			env := phaseEnv{phase: "before", iteration: i, maxIter: max}
 			if err := runPhaseAgent(cfg, cfg.AgentBefore, env, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "agent-before failed (skipping iteration %d): %v\n", i, err)
@@ -247,6 +255,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 		// Run cmd-before; skip iteration on failure
 		if cfg.CmdBefore != "" {
+			formatter.CmdHookMarker("cmd-before", cfg.CmdBefore)
 			if err := runHook(cfg.CmdBefore, hookEnv{iteration: i, maxIterations: max}, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "cmd-before failed (skipping iteration %d): %v\n", i, err)
 				continue
@@ -403,6 +412,10 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 		// Run agent-after; log warning on failure but continue
 		if cfg.AgentAfter != "" {
+			formatter.PhaseAgentHeader("after")
+			if cfg.Verbose {
+				fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentAfter)
+			}
 			env := phaseEnv{phase: "after", iteration: i, maxIter: max}
 			if err := runPhaseAgent(cfg, cfg.AgentAfter, env, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "agent-after failed (iteration %d): %v\n", i, err)
@@ -411,6 +424,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 		// Run cmd-after; log warning on failure but continue
 		if cfg.CmdAfter != "" {
+			formatter.CmdHookMarker("cmd-after", cfg.CmdAfter)
 			afterEnv := hookEnv{
 				iteration:     i,
 				maxIterations: max,
@@ -463,6 +477,10 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 	// Run agent-post once after the task loop (failure stops the task)
 	if cfg.AgentPost != "" {
+		formatter.PhaseAgentHeader("post")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
+		}
 		env := phaseEnv{phase: "post", iteration: 0, maxIter: max}
 		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
 			return fmt.Errorf("agent-post failed: %w", err)

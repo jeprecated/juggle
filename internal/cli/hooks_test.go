@@ -224,3 +224,105 @@ func TestRunWatchTask_CmdAfterFailureLogsWarning(t *testing.T) {
 		t.Errorf("expected cmd-after warning in stderr, got: %q", stderr.String())
 	}
 }
+
+// --- lifecycle markers ---
+
+func TestRunLoop_CmdBefore_PrintsMarker(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "ok"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		CmdBefore:  "make lint",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "cmd-before") {
+		t.Errorf("expected 'cmd-before' marker in stderr, got: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "make lint") {
+		t.Errorf("expected command in marker, got: %q", stderr.String())
+	}
+}
+
+func TestRunLoop_CmdAfter_PrintsMarker(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "ok"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "test",
+		Iterations: 1,
+		CmdAfter:   "echo done",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "cmd-after") {
+		t.Errorf("expected 'cmd-after' marker in stderr, got: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "echo done") {
+		t.Errorf("expected command in marker, got: %q", stderr.String())
+	}
+}
+
+func TestRunWatchTask_CmdBefore_PrintsMarker(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "ok"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "context",
+		Iterations: 1,
+		CmdBefore:  "make build",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := runWatchTask(cfg, taskPath, "task.md", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "cmd-before") {
+		t.Errorf("expected 'cmd-before' marker in stderr, got: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "make build") {
+		t.Errorf("expected command in marker, got: %q", stderr.String())
+	}
+}
+
+func TestRunWatchTask_CmdAfter_PrintsMarker(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("task content"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "ok"},
+	)
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "context",
+		Iterations: 1,
+		CmdAfter:   "echo done",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := runWatchTask(cfg, taskPath, "task.md", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "cmd-after") {
+		t.Errorf("expected 'cmd-after' marker in stderr, got: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "echo done") {
+		t.Errorf("expected command in marker, got: %q", stderr.String())
+	}
+}

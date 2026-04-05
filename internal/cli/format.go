@@ -52,6 +52,29 @@ func (f *LoopFormatter) IterationHeader(iteration, max int, filename, runLabel s
 	}
 }
 
+// PhaseAgentHeader prints a dim separator before a phase agent runs.
+// phase is one of: pre, before, after, post.
+func (f *LoopFormatter) PhaseAgentHeader(phase string) {
+	title := string(phase[0]-'a'+'A') + phase[1:]
+	line := fmt.Sprintf("── Agent %s ──", title)
+	if f.isTTY {
+		fmt.Fprintf(f.w, "%s%s%s\n", dimOn, line, dimOff)
+	} else {
+		fmt.Fprintln(f.w, line)
+	}
+}
+
+// CmdHookMarker prints a dim marker line before a cmd hook runs.
+// hookName is "cmd-before" or "cmd-after".
+func (f *LoopFormatter) CmdHookMarker(hookName, cmd string) {
+	line := fmt.Sprintf("  %s: %s", hookName, cmd)
+	if f.isTTY {
+		fmt.Fprintf(f.w, "%s%s%s\n", dimOn, line, dimOff)
+	} else {
+		fmt.Fprintln(f.w, line)
+	}
+}
+
 // IterationStatus prints timing and token metrics after an iteration completes.
 func (f *LoopFormatter) IterationStatus(elapsed time.Duration, inputTokens, outputTokens, cacheTokens int) {
 	var timing string

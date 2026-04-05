@@ -138,3 +138,102 @@ func TestIterationStatus(t *testing.T) {
 		}
 	})
 }
+
+func TestPhaseAgentHeader(t *testing.T) {
+	for _, phase := range []string{"pre", "before", "after", "post"} {
+		t.Run(phase, func(t *testing.T) {
+			var buf bytes.Buffer
+			f := NewLoopFormatter(&buf)
+			f.PhaseAgentHeader(phase)
+			got := buf.String()
+			if !strings.Contains(got, "──") {
+				t.Errorf("phase=%s: got %q, want separator dashes", phase, got)
+			}
+			if !strings.Contains(got, "Agent ") {
+				t.Errorf("phase=%s: got %q, want 'Agent ' prefix", phase, got)
+			}
+		})
+	}
+
+	t.Run("pre shows Pre", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.PhaseAgentHeader("pre")
+		if !strings.Contains(buf.String(), "Agent Pre") {
+			t.Errorf("got %q, want 'Agent Pre'", buf.String())
+		}
+	})
+
+	t.Run("before shows Before", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.PhaseAgentHeader("before")
+		if !strings.Contains(buf.String(), "Agent Before") {
+			t.Errorf("got %q, want 'Agent Before'", buf.String())
+		}
+	})
+
+	t.Run("after shows After", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.PhaseAgentHeader("after")
+		if !strings.Contains(buf.String(), "Agent After") {
+			t.Errorf("got %q, want 'Agent After'", buf.String())
+		}
+	})
+
+	t.Run("post shows Post", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.PhaseAgentHeader("post")
+		if !strings.Contains(buf.String(), "Agent Post") {
+			t.Errorf("got %q, want 'Agent Post'", buf.String())
+		}
+	})
+
+	t.Run("non-TTY produces plain text", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.PhaseAgentHeader("pre")
+		if strings.Contains(buf.String(), "\033[") {
+			t.Errorf("non-TTY output contains ANSI codes: %q", buf.String())
+		}
+	})
+}
+
+func TestCmdHookMarker(t *testing.T) {
+	t.Run("cmd-before shows hook name and command", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.CmdHookMarker("cmd-before", "make lint")
+		got := buf.String()
+		if !strings.Contains(got, "cmd-before") {
+			t.Errorf("got %q, want 'cmd-before'", got)
+		}
+		if !strings.Contains(got, "make lint") {
+			t.Errorf("got %q, want command text", got)
+		}
+	})
+
+	t.Run("cmd-after shows hook name and command", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.CmdHookMarker("cmd-after", "echo done")
+		got := buf.String()
+		if !strings.Contains(got, "cmd-after") {
+			t.Errorf("got %q, want 'cmd-after'", got)
+		}
+		if !strings.Contains(got, "echo done") {
+			t.Errorf("got %q, want command text", got)
+		}
+	})
+
+	t.Run("non-TTY produces plain text", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.CmdHookMarker("cmd-before", "true")
+		if strings.Contains(buf.String(), "\033[") {
+			t.Errorf("non-TTY output contains ANSI codes: %q", buf.String())
+		}
+	})
+}
