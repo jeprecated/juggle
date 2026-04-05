@@ -25,3 +25,20 @@ Add `--resume` flag that reads the log file to determine the last completed iter
 
 - Parse JSONL log file, find max iteration number
 - Adjust the loop start index in RunLoop
+
+## Completion Summary
+
+- Added `Resume bool` field to `Config` struct
+- Added `--resume` flag registered in `init()` and wired through `run()` → `cfg`
+- `RunLoop` validates `--resume` requires `--log` (returns error if not set)
+- `RunLoop` calls `parseLastIteration` to find last completed iteration; starts loop from `last+1`
+- Logs "resuming from iteration N" to stderr when last > 0
+- `writeIterationLog` appends a JSONL entry `{"iteration":N}` per completed iteration after each successful iteration
+- Added `internal/cli/log.go` with `writeIterationLog` and `parseLastIteration`
+- Added `internal/cli/log_test.go` with full test coverage (8 tests)
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/log.go` (new)
+- `internal/cli/log_test.go` (new)

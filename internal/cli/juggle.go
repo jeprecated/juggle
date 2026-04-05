@@ -103,6 +103,7 @@ type Config struct {
 	SystemPrompt      string        // Optional system prompt appended to the agent's system prompt
 	Workers           int           // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
 	WorkDir           string        // Working directory for agent spawning (empty = juggle's cwd)
+	Resume            bool          // Resume from last completed iteration recorded in --log file
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -218,6 +219,7 @@ var flags struct {
 	workers         int
 	workdir         string
 	noConfig        bool
+	resume          bool
 }
 
 func init() {
@@ -260,6 +262,7 @@ func init() {
 	f.IntVar(&flags.workers, "workers", 1, "number of concurrent watch workers (requires --watch)")
 	f.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
 	f.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
+	f.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -465,6 +468,7 @@ func run(cmd *cobra.Command, args []string) error {
 		SystemPrompt:      systemPrompt,
 		Workers:           flags.workers,
 		WorkDir:           flags.workdir,
+		Resume:            flags.resume,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -574,6 +578,10 @@ func RunLoop(cfg Config) error {
 		cfg.RunID = generateRunID()
 	}
 
+	if cfg.Resume && cfg.Log == "" {
+		return fmt.Errorf("--resume requires --log to be set")
+	}
+
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
 	stats := runStats{start: time.Now(), model: cfg.Model}
@@ -590,6 +598,19 @@ func RunLoop(cfg Config) error {
 	const maxBackoff = 10 * time.Minute
 	backoff := initialBackoff
 
+	// Determine start iteration (1, or N+1 when resuming)
+	startFrom := 1
+	if cfg.Resume {
+		last, err := parseLastIteration(cfg.Log)
+		if err != nil {
+			return fmt.Errorf("--resume: reading log: %w", err)
+		}
+		startFrom = last + 1
+		if last > 0 {
+			fmt.Fprintf(cfg.Stderr, "resuming from iteration %d\n", startFrom)
+		}
+	}
+
 	// Run agent-pre once before the loop (failure stops the run)
 	if cfg.AgentPre != "" {
 		env := phaseEnv{phase: "pre", iteration: 0, maxIter: max}
@@ -598,7 +619,7 @@ func RunLoop(cfg Config) error {
 		}
 	}
 
-	for i := 1; max == 0 || i <= max; i++ {
+	for i := startFrom; max == 0 || i <= max; i++ {
 		// Check shutdown flag before starting each new iteration
 		select {
 		case <-cfg.Shutdown:
@@ -764,6 +785,9 @@ func RunLoop(cfg Config) error {
 		stats.outputTokens += result.OutputTokens
 		stats.cacheTokens += result.CacheTokens
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
+
+		// Record completed iteration to log (enables --resume after crash)
+		writeIterationLog(cfg.Log, i)
 
 		// Run agent-after; log warning on failure but continue
 		if cfg.AgentAfter != "" {
