@@ -1,0 +1,104 @@
+package cli
+
+import (
+	"fmt"
+
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+)
+
+// flagGroupKey is the pflag annotation key used to assign a flag to a help group.
+const flagGroupKey = "group"
+
+// groupOrder defines the display order of flag groups in --help output.
+var groupOrder = []string{
+	"Loop Control",
+	"Agent Configuration",
+	"Lifecycle Hooks",
+	"Watch Mode",
+	"Output",
+}
+
+// setFlagGroup annotates a flag with its help group.
+// Panics if the flag name is not registered, to catch typos at startup.
+func setFlagGroup(f *pflag.FlagSet, name, group string) {
+	fl := f.Lookup(name)
+	if fl == nil {
+		panic("setFlagGroup: unknown flag " + name)
+	}
+	if fl.Annotations == nil {
+		fl.Annotations = make(map[string][]string)
+	}
+	fl.Annotations[flagGroupKey] = []string{group}
+}
+
+// groupedHelp is a cobra help function that renders flags sorted into named groups.
+func groupedHelp(cmd *cobra.Command, _ []string) {
+	w := cmd.OutOrStdout()
+
+	if cmd.Long != "" {
+		fmt.Fprintln(w, cmd.Long)
+		fmt.Fprintln(w)
+	}
+
+	fmt.Fprintf(w, "Usage:\n  %s\n\n", cmd.UseLine())
+
+	if cmd.Example != "" {
+		fmt.Fprintf(w, "Examples:\n%s\n\n", cmd.Example)
+	}
+
+	// Collect flags into groups
+	groupSets := make(map[string]*pflag.FlagSet)
+	otherSet := pflag.NewFlagSet("other", pflag.ContinueOnError)
+
+	cmd.Flags().VisitAll(func(f *pflag.Flag) {
+		if f.Hidden {
+			return
+		}
+		if grps, ok := f.Annotations[flagGroupKey]; ok && len(grps) > 0 {
+			grp := grps[0]
+			if groupSets[grp] == nil {
+				groupSets[grp] = pflag.NewFlagSet(grp, pflag.ContinueOnError)
+			}
+			groupSets[grp].AddFlag(f)
+		} else {
+			otherSet.AddFlag(f)
+		}
+	})
+
+	// Render groups in defined order
+	for _, grp := range groupOrder {
+		fs := groupSets[grp]
+		if fs == nil {
+			continue
+		}
+		fmt.Fprintf(w, "%s:\n", grp)
+		fmt.Fprint(w, fs.FlagUsages())
+		fmt.Fprintln(w)
+	}
+
+	// Render ungrouped flags (--help, --version, --no-config)
+	hasOther := false
+	otherSet.VisitAll(func(_ *pflag.Flag) { hasOther = true })
+	if hasOther {
+		fmt.Fprintf(w, "Flags:\n")
+		fmt.Fprint(w, otherSet.FlagUsages())
+		fmt.Fprintln(w)
+	}
+
+	// Subcommands
+	available := make([]*cobra.Command, 0)
+	for _, sub := range cmd.Commands() {
+		if sub.IsAvailableCommand() {
+			available = append(available, sub)
+		}
+	}
+	if len(available) > 0 {
+		fmt.Fprintf(w, "Available Commands:\n")
+		for _, sub := range available {
+			fmt.Fprintf(w, "  %-11s %s\n", sub.Name(), sub.Short)
+		}
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "Use \"%s [command] --help\" for more information about a command.\n", cmd.Root().Name())
+	}
+}

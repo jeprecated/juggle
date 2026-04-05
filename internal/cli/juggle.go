@@ -265,6 +265,25 @@ func init() {
 	_ = f.MarkHidden("show-thinking")
 	_ = f.MarkHidden("provider")
 
+	// Assign visible flags to help groups. Hidden flags (fuzz, interactive,
+	// show-thinking, provider) are intentionally omitted here.
+	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "resume"} {
+		setFlagGroup(f, name, "Loop Control")
+	}
+	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "workdir"} {
+		setFlagGroup(f, name, "Agent Configuration")
+	}
+	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
+		setFlagGroup(f, name, "Lifecycle Hooks")
+	}
+	for _, name := range []string{"watch", "workers"} {
+		setFlagGroup(f, name, "Watch Mode")
+	}
+	for _, name := range []string{"dry-run", "verbose", "log", "label"} {
+		setFlagGroup(f, name, "Output")
+	}
+
+	rootCmd.SetHelpFunc(groupedHelp)
 	rootCmd.AddCommand(completionCmd)
 }
 
