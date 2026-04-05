@@ -18,3 +18,18 @@ Hook commands (--cmd-before, --cmd-after, --stop-when) currently only receive JU
 - Include JUGGLE_LABEL only when non-empty
 - Update all calling sites in juggle.go and watch.go to pass run-level values
 - Tests verify run-level vars are present in hook env
+
+## Completion Summary
+
+- Added `runID`, `label`, `model`, `provider` fields to `hookEnv` struct
+- Updated `envSlice()` to emit `JUGGLE_RUN_ID`, `JUGGLE_MODEL`, `JUGGLE_PROVIDER`; `JUGGLE_LABEL` only when non-empty
+- Updated `cmd-before`, `cmd-after`, `stop-when` call sites in `juggle.go` to pass run-level values from `cfg`
+- Updated `cmd-before`, `cmd-after`, `stop-when` call sites in `watch.go` to pass run-level values from `cfg`
+- Added `TestRunHook_RunLevelEnvVars` and `TestRunHook_EmptyLabelOmitted` tests
+
+### Files Changed
+
+- `internal/cli/hooks.go` (modified)
+- `internal/cli/hooks_test.go` (modified)
+- `internal/cli/juggle.go` (modified)
+- `internal/cli/watch.go` (modified)

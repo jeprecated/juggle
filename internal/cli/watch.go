@@ -295,7 +295,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		// Run cmd-before; skip iteration on failure
 		if cfg.CmdBefore != "" {
 			formatter.CmdHookMarker("cmd-before", cfg.CmdBefore)
-			if err := runHook(cfg.CmdBefore, hookEnv{iteration: i, maxIterations: max}, cfg.Stderr); err != nil {
+			if err := runHook(cfg.CmdBefore, hookEnv{iteration: i, maxIterations: max, runID: cfg.RunID, label: cfg.Label, model: cfg.Model, provider: cfg.Provider}, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "cmd-before failed (skipping iteration %d): %v\n", i, err)
 				continue
 			}
@@ -473,6 +473,10 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 				exitCode:      result.ExitCode,
 				inputTokens:   result.InputTokens,
 				outputTokens:  result.OutputTokens,
+				runID:         cfg.RunID,
+				label:         cfg.Label,
+				model:         cfg.Model,
+				provider:      cfg.Provider,
 			}
 			if err := runHook(cfg.CmdAfter, afterEnv, cfg.Stderr); err != nil {
 				fmt.Fprintf(cfg.Stderr, "cmd-after failed (iteration %d): %v\n", i, err)
@@ -487,6 +491,10 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 				exitCode:      result.ExitCode,
 				inputTokens:   result.InputTokens,
 				outputTokens:  result.OutputTokens,
+				runID:         cfg.RunID,
+				label:         cfg.Label,
+				model:         cfg.Model,
+				provider:      cfg.Provider,
 			}
 			if err := runHook(cfg.StopWhen, stopEnv, cfg.Stderr); err == nil {
 				fmt.Fprintf(cfg.Stderr, "stop-when condition met after iteration %d, stopping\n", i)

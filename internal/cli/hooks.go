@@ -10,24 +10,35 @@ import (
 	"strings"
 )
 
-// hookEnv holds iteration metadata passed as environment variables to hook commands.
+// hookEnv holds iteration and run-level metadata passed as environment variables to hook commands.
 type hookEnv struct {
 	iteration     int
 	maxIterations int
 	exitCode      int
 	inputTokens   int
 	outputTokens  int
+	runID         string
+	label         string
+	model         string
+	provider      string
 }
 
 // envSlice returns the hook environment as a slice of KEY=VALUE strings.
 func (h hookEnv) envSlice() []string {
-	return []string{
+	env := []string{
 		"JUGGLE_ITERATION=" + strconv.Itoa(h.iteration),
 		"JUGGLE_MAX_ITERATIONS=" + strconv.Itoa(h.maxIterations),
 		"JUGGLE_EXIT_CODE=" + strconv.Itoa(h.exitCode),
 		"JUGGLE_INPUT_TOKENS=" + strconv.Itoa(h.inputTokens),
 		"JUGGLE_OUTPUT_TOKENS=" + strconv.Itoa(h.outputTokens),
+		"JUGGLE_RUN_ID=" + h.runID,
+		"JUGGLE_MODEL=" + h.model,
+		"JUGGLE_PROVIDER=" + h.provider,
 	}
+	if h.label != "" {
+		env = append(env, "JUGGLE_LABEL="+h.label)
+	}
+	return env
 }
 
 // runHook executes a hook command (inline shell or @file reference).

@@ -225,6 +225,58 @@ func TestRunWatchTask_CmdAfterFailureLogsWarning(t *testing.T) {
 	}
 }
 
+// TestRunHook_RunLevelEnvVars verifies run-level env vars are passed to hook.
+func TestRunHook_RunLevelEnvVars(t *testing.T) {
+	var stderr bytes.Buffer
+	env := hookEnv{
+		iteration:     1,
+		maxIterations: 3,
+		runID:         "abc123",
+		label:         "my-label",
+		model:         "claude-opus-4-5",
+		provider:      "claude",
+	}
+	err := runHook(`sh -c 'echo RID=$JUGGLE_RUN_ID LBL=$JUGGLE_LABEL MDL=$JUGGLE_MODEL PRV=$JUGGLE_PROVIDER' >&2`, env, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "RID=abc123") {
+		t.Errorf("expected RID=abc123, got: %q", out)
+	}
+	if !strings.Contains(out, "LBL=my-label") {
+		t.Errorf("expected LBL=my-label, got: %q", out)
+	}
+	if !strings.Contains(out, "MDL=claude-opus-4-5") {
+		t.Errorf("expected MDL=claude-opus-4-5, got: %q", out)
+	}
+	if !strings.Contains(out, "PRV=claude") {
+		t.Errorf("expected PRV=claude, got: %q", out)
+	}
+}
+
+// TestRunHook_EmptyLabelOmitted verifies JUGGLE_LABEL is not set when label is empty.
+func TestRunHook_EmptyLabelOmitted(t *testing.T) {
+	var stderr bytes.Buffer
+	env := hookEnv{
+		iteration:     1,
+		maxIterations: 3,
+		runID:         "xyz",
+		label:         "",
+		model:         "gpt-4",
+		provider:      "openai",
+	}
+	// Print whether JUGGLE_LABEL is set via ${JUGGLE_LABEL+SET} trick
+	err := runHook(`sh -c 'echo LABEL_SET=${JUGGLE_LABEL+SET}' >&2`, env, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stderr.String()
+	if strings.Contains(out, "LABEL_SET=SET") {
+		t.Errorf("expected JUGGLE_LABEL to be unset when label is empty, got: %q", out)
+	}
+}
+
 // --- lifecycle markers ---
 
 func TestRunLoop_CmdBefore_PrintsMarker(t *testing.T) {
