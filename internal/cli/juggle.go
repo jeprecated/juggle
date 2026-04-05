@@ -86,6 +86,7 @@ type Config struct {
 	AgentBefore  string        // Agent session prompt to run before each iteration
 	AgentAfter   string        // Agent session prompt to run after each iteration
 	AgentPost         string        // Agent session prompt to run once after the loop
+	Hooks             []string      // raw --hook flag values (for dry-run display)
 	HooksSettingsFile string        // path to temp hooks settings JSON file (Claude-specific)
 	Log               string        // Path to log file (summary appended on completion)
 	MaxCost           float64       // Stop loop when cumulative cost exceeds this (0 = disabled)
@@ -473,6 +474,7 @@ func run(cmd *cobra.Command, args []string) error {
 		AgentBefore:  agentBefore,
 		AgentAfter:   agentAfter,
 		AgentPost:         agentPost,
+		Hooks:             flags.hooks,
 		HooksSettingsFile: hooksSettingsFile,
 		Log:               flags.log,
 		MaxCost:           flags.maxCost,
@@ -582,8 +584,7 @@ func Run(cfg Config) error {
 	}
 
 	if cfg.DryRun {
-		prompt := BuildPrompt(cfg.Content, 1, cfg.Iterations)
-		fmt.Fprint(cfg.Stdout, prompt)
+		printDryRun(cfg, cfg.Stdout)
 		return nil
 	}
 
