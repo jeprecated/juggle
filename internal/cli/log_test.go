@@ -114,6 +114,7 @@ func TestWriteIterationLog_JSONFields(t *testing.T) {
 
 	errStr := "agent exited with error"
 	entry := iterationLogEntry{
+		RunID:        "test-run-id-123",
 		Timestamp:    time.Date(2024, 1, 15, 10, 30, 0, 0, time.UTC),
 		Iteration:    2,
 		Label:        "fix tests",
@@ -134,6 +135,7 @@ func TestWriteIterationLog_JSONFields(t *testing.T) {
 	line := string(data)
 
 	checks := []string{
+		`"run_id":"test-run-id-123"`,
 		`"timestamp"`,
 		`"iteration":2`,
 		`"label":"fix tests"`,
@@ -149,6 +151,24 @@ func TestWriteIterationLog_JSONFields(t *testing.T) {
 		if !strings.Contains(line, check) {
 			t.Errorf("expected %q in log line, got: %s", check, line)
 		}
+	}
+}
+
+func TestWriteIterationLog_IncludesRunID(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "run.jsonl")
+
+	writeIterationLog(logFile, iterationLogEntry{
+		RunID:     "abc-123",
+		Iteration: 1,
+	})
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"run_id":"abc-123"`) {
+		t.Errorf("expected run_id in log entry, got: %s", string(data))
 	}
 }
 
@@ -224,6 +244,7 @@ func TestWriteSummaryLog_JSONFields(t *testing.T) {
 	logFile := filepath.Join(dir, "run.jsonl")
 
 	stats := runStats{
+		runID:        "summary-run-id",
 		iterations:   3,
 		inputTokens:  300,
 		outputTokens: 150,
@@ -260,6 +281,29 @@ func TestWriteSummaryLog_JSONFields(t *testing.T) {
 	}
 	if _, ok := entry["estimated_cost"]; !ok {
 		t.Error("expected estimated_cost field")
+	}
+	if v, ok := entry["run_id"].(string); !ok || v != "summary-run-id" {
+		t.Errorf("expected run_id=summary-run-id, got: %v", entry["run_id"])
+	}
+}
+
+func TestWriteSummaryLog_IncludesRunID(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "run.jsonl")
+
+	stats := runStats{
+		runID: "xyz-456",
+		start: time.Now(),
+		model: "sonnet",
+	}
+	writeSummaryLog(logFile, stats)
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"run_id":"xyz-456"`) {
+		t.Errorf("expected run_id in summary entry, got: %s", string(data))
 	}
 }
 
@@ -453,7 +497,7 @@ func TestRunLoop_LogsTokensAndExitCode(t *testing.T) {
 		t.Fatalf("failed to parse log line: %v", err)
 	}
 
-	requiredFields := []string{"timestamp", "iteration", "duration_ms", "input_tokens", "output_tokens", "exit_code", "rate_limited", "error"}
+	requiredFields := []string{"run_id", "timestamp", "iteration", "duration_ms", "input_tokens", "output_tokens", "exit_code", "rate_limited", "error"}
 	for _, f := range requiredFields {
 		if _, ok := entry[f]; !ok {
 			t.Errorf("missing field %q in log entry", f)

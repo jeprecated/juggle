@@ -11,6 +11,7 @@ import (
 
 // iterationLogEntry is the per-iteration JSONL record written to the log file.
 type iterationLogEntry struct {
+	RunID        string    `json:"run_id"`
 	Timestamp    time.Time `json:"timestamp"`
 	Iteration    int       `json:"iteration"`
 	Label        string    `json:"label,omitempty"`
@@ -25,6 +26,7 @@ type iterationLogEntry struct {
 
 // summaryLogEntry is the final JSONL record appended after all iterations complete.
 type summaryLogEntry struct {
+	RunID         string    `json:"run_id"`
 	Type          string    `json:"type"`
 	Timestamp     time.Time `json:"timestamp"`
 	Iterations    int       `json:"iterations"`
@@ -62,6 +64,7 @@ func writeSummaryLog(logFile string, stats runStats) {
 	}
 	defer f.Close()
 	entry := summaryLogEntry{
+		RunID:         stats.runID,
 		Type:          "summary",
 		Timestamp:     time.Now().UTC(),
 		Iterations:    stats.iterations,

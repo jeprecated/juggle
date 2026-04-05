@@ -161,7 +161,7 @@ func RunWatch(cfg Config) error {
 		}
 	}
 
-	stats := runStats{start: time.Now(), model: cfg.Model}
+	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 
 	for {
 		// Check shutdown before starting each scan/task cycle
@@ -593,7 +593,7 @@ func runWatchWorkers(cfg Config) error {
 // runWorkerLoop is the per-worker pick→process→repeat loop.
 // dash and workerID are used to update the dashboard when non-nil.
 func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration, dash *workerDashboard, workerID int) error {
-	stats := runStats{start: time.Now(), model: cfg.Model}
+	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 
 	logFile := ""
 	if dash != nil && workerID >= 0 && workerID < len(dash.logFiles) {

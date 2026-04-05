@@ -118,7 +118,7 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 	}
 
-	stats := runStats{start: time.Now(), model: cfg.Model}
+	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 
 	for {
 		select {
@@ -252,7 +252,7 @@ func runGlobWatchWorkers(cfg Config) error {
 }
 
 func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordinator, pollDelay time.Duration, dash *workerDashboard, workerID int) error {
-	stats := runStats{start: time.Now(), model: cfg.Model}
+	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 
 	logFile := ""
 	if dash != nil && workerID >= 0 && workerID < len(dash.logFiles) {

@@ -121,6 +121,7 @@ type Config struct {
 
 // runStats tracks cumulative metrics across iterations for the run summary.
 type runStats struct {
+	runID        string
 	iterations   int
 	inputTokens  int
 	outputTokens int
@@ -602,7 +603,7 @@ func RunLoop(cfg Config) error {
 
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
-	stats := runStats{start: time.Now(), model: cfg.Model}
+	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 	consecutiveFailures := 0
 	retryCount := 0
 
@@ -820,6 +821,7 @@ func RunLoop(cfg Config) error {
 			errStr = &s
 		}
 		writeIterationLog(cfg.Log, iterationLogEntry{
+			RunID:        cfg.RunID,
 			Timestamp:    time.Now().UTC(),
 			Iteration:    i,
 			Label:        cfg.Label,
