@@ -11,6 +11,7 @@ import (
 // completeArgs provides shell completion for positional arguments.
 // When an arg starts with @, it suggests files from $JUGGLE_PROMPTS and any
 // subdirectory whose name contains "prompts" found under the working directory.
+// Aliases declared in frontmatter are also suggested with a source hint.
 func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if !strings.HasPrefix(toComplete, "@") {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -47,8 +48,11 @@ func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 	}
 
 	// Search $JUGGLE_PROMPTS (all files, existing behaviour)
-	if promptsDir := os.Getenv("JUGGLE_PROMPTS"); promptsDir != "" {
+	promptsDir := os.Getenv("JUGGLE_PROMPTS")
+	if promptsDir != "" {
 		addFromDir(promptsDir, false)
+		// Also add alias completions from JUGGLE_PROMPTS frontmatter
+		addAliasCompletions(promptsDir, partial, seen, &completions)
 	}
 
 	// Search subdirs containing "prompts" in their name under cwd
@@ -62,6 +66,42 @@ func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return completions, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
+}
+
+// addAliasCompletions scans promptsDir for files with aliases in frontmatter
+// and appends matching alias completions (with source hint) to completions.
+// An alias is not added if a base name already occupies that slot in seen.
+func addAliasCompletions(promptsDir, partial string, seen map[string]struct{}, completions *[]string) {
+	entries, err := os.ReadDir(promptsDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		filePath := filepath.Join(promptsDir, entry.Name())
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			continue
+		}
+		fm, _ := parseFrontmatter(data)
+		if len(fm.Aliases) == 0 {
+			continue
+		}
+		base := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		for _, alias := range fm.Aliases {
+			if !strings.HasPrefix(strings.ToLower(alias), partial) {
+				continue
+			}
+			// Skip if base name already provides this slot
+			if _, exists := seen[alias]; exists {
+				continue
+			}
+			seen[alias] = struct{}{}
+			*completions = append(*completions, "@"+alias+"\t(→ "+base+")")
+		}
+	}
 }
 
 // findPromptDirs walks root and returns all subdirectory paths whose base name

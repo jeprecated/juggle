@@ -239,4 +239,109 @@ func TestResolveArgs(t *testing.T) {
 			t.Errorf("got %q, want exact name to win over .md suffix", got[0])
 		}
 	})
+
+	t.Run("@alias resolves to file that declares that alias", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "subagent.md"), []byte("---\naliases: [subagents]\n---\nSubagent prompt."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@subagents"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "Subagent prompt." {
+			t.Errorf("got %q, want alias to resolve to file body", got[0])
+		}
+	})
+
+	t.Run("alias resolution is case-insensitive", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "subagent.md"), []byte("---\naliases: [subagents]\n---\nSubagent prompt."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@SUBAGENTS"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "Subagent prompt." {
+			t.Errorf("got %q, want case-insensitive alias match", got[0])
+		}
+	})
+
+	t.Run("base name wins over alias on collision", func(t *testing.T) {
+		dir := t.TempDir()
+		// file named "sub.md" exists, AND "subagent.md" declares alias "sub"
+		os.WriteFile(filepath.Join(dir, "sub.md"), []byte("base name content"), 0644)
+		os.WriteFile(filepath.Join(dir, "subagent.md"), []byte("---\naliases: [sub]\n---\nAlias target."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@sub"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "base name content" {
+			t.Errorf("got %q, want base name to win over alias", got[0])
+		}
+	})
+
+	t.Run("duplicate alias across two files returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "a.md"), []byte("---\naliases: [shared]\n---\nA."), 0644)
+		os.WriteFile(filepath.Join(dir, "b.md"), []byte("---\naliases: [shared]\n---\nB."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		_, err := ResolveArgs([]string{"@shared"})
+		if err == nil {
+			t.Fatal("expected error for duplicate alias")
+		}
+		if !strings.Contains(err.Error(), "a.md") || !strings.Contains(err.Error(), "b.md") {
+			t.Errorf("error should name both files, got: %v", err)
+		}
+	})
+
+	t.Run("frontmatter is stripped from JUGGLE_PROMPTS files", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "tdd.md"), []byte("---\naliases: []\n---\nTest-driven content."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@tdd"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(got[0], "---") {
+			t.Errorf("got %q, frontmatter should be stripped", got[0])
+		}
+		if got[0] != "Test-driven content." {
+			t.Errorf("got %q, want body only", got[0])
+		}
+	})
+
+	t.Run("literal file path does not strip frontmatter", func(t *testing.T) {
+		dir := t.TempDir()
+		content := "---\naliases: [foo]\n---\nBody."
+		path := filepath.Join(dir, "file.md")
+		os.WriteFile(path, []byte(content), 0644)
+
+		got, err := ResolveArgs([]string{"@" + path})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != content {
+			t.Errorf("got %q, want literal file untouched", got[0])
+		}
+	})
+
+	t.Run("file without frontmatter in JUGGLE_PROMPTS works unchanged", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "plain.md"), []byte("plain content, no frontmatter"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@plain"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "plain content, no frontmatter" {
+			t.Errorf("got %q, want unchanged content", got[0])
+		}
+	})
 }

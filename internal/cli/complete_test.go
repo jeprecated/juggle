@@ -224,4 +224,65 @@ func TestCompleteArgs(t *testing.T) {
 			t.Errorf("expected 1 completion (deduped), got %v", completions)
 		}
 	})
+
+	t.Run("alias appears as completion with source hint", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "subagent.md"), []byte("---\naliases: [subagents, sub]\n---\nBody."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@sub")
+		// Should contain: @subagent, @subagents (→ subagent), @sub (→ subagent)
+		var hasBase, hasAliasSubagents, hasAliasSub bool
+		for _, c := range completions {
+			switch c {
+			case "@subagent":
+				hasBase = true
+			case "@subagents\t(→ subagent)":
+				hasAliasSubagents = true
+			case "@sub\t(→ subagent)":
+				hasAliasSub = true
+			}
+		}
+		if !hasBase {
+			t.Errorf("expected @subagent base completion, got %v", completions)
+		}
+		if !hasAliasSubagents {
+			t.Errorf("expected @subagents (→ subagent) alias completion, got %v", completions)
+		}
+		if !hasAliasSub {
+			t.Errorf("expected @sub (→ subagent) alias completion, got %v", completions)
+		}
+	})
+
+	t.Run("alias completion is case-insensitive", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "myfile.md"), []byte("---\naliases: [MyAlias]\n---\nBody."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@myal")
+		found := false
+		for _, c := range completions {
+			if c == "@MyAlias\t(→ myfile)" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected @MyAlias (→ myfile) completion, got %v", completions)
+		}
+	})
+
+	t.Run("alias not shown if base name already matches (base name wins)", func(t *testing.T) {
+		dir := t.TempDir()
+		// sub.md exists, subagent.md declares alias "sub"
+		os.WriteFile(filepath.Join(dir, "sub.md"), []byte(""), 0644)
+		os.WriteFile(filepath.Join(dir, "subagent.md"), []byte("---\naliases: [sub]\n---\nBody."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@sub")
+		for _, c := range completions {
+			if c == "@sub\t(→ subagent)" {
+				t.Errorf("alias completion should not appear when base name already provides @sub, got %v", completions)
+			}
+		}
+	})
 }
