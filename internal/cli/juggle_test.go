@@ -853,8 +853,8 @@ func TestRunLoop_LogFileWritesSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("log file not created: %v", err)
 	}
-	if !strings.Contains(string(contents), "Run summary") {
-		t.Errorf("expected 'Run summary' in log file, got: %s", contents)
+	if !strings.Contains(string(contents), `"type":"summary"`) {
+		t.Errorf("expected JSON summary line in log file, got: %s", contents)
 	}
 }
 

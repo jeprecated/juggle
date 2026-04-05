@@ -168,15 +168,10 @@ func printRunSummary(w io.Writer, stats runStats) {
 	fmt.Fprintf(w, "Run summary: %d iteration(s), %s, ~$%.4f, %s\n", stats.iterations, tok, cost, timing)
 }
 
-// writeSummary prints the run summary to cfg.Stderr and, if cfg.Log is set, appends it to the log file.
+// writeSummary prints the run summary to cfg.Stderr and, if cfg.Log is set, appends a JSON summary entry.
 func writeSummary(cfg Config, stats runStats) {
 	printRunSummary(cfg.Stderr, stats)
-	if cfg.Log != "" {
-		if f, err := os.OpenFile(cfg.Log, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err == nil {
-			printRunSummary(f, stats)
-			f.Close()
-		}
-	}
+	writeSummaryLog(cfg.Log, stats)
 }
 
 // flags is used for cobra flag binding.
@@ -248,7 +243,7 @@ func init() {
 	f.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
 	f.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
 	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
-	f.StringVar(&flags.log, "log", "", "append run summary to this file on completion")
+	f.StringVar(&flags.log, "log", "", "append one JSON line per iteration to this file (JSONL); summary appended on completion")
 	f.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
 	f.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
 	f.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
@@ -791,7 +786,23 @@ func RunLoop(cfg Config) error {
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
 		// Record completed iteration to log (enables --resume after crash)
-		writeIterationLog(cfg.Log, i, cfg.Label)
+		var errStr *string
+		if result.Error != nil {
+			s := result.Error.Error()
+			errStr = &s
+		}
+		writeIterationLog(cfg.Log, iterationLogEntry{
+			Timestamp:    time.Now().UTC(),
+			Iteration:    i,
+			Label:        cfg.Label,
+			DurationMs:   time.Since(start).Milliseconds(),
+			InputTokens:  result.InputTokens,
+			OutputTokens: result.OutputTokens,
+			CacheTokens:  result.CacheTokens,
+			ExitCode:     result.ExitCode,
+			RateLimited:  result.RateLimited,
+			Error:        errStr,
+		})
 
 		// Run agent-after; log warning on failure but continue
 		if cfg.AgentAfter != "" {
