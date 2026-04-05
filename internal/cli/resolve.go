@@ -26,6 +26,7 @@ func ReadStdin(r io.Reader, isTTY bool) (string, error) {
 // Bare @name (no /) checks $JUGGLE_PROMPTS/<name> and <name>.md as fallbacks,
 // then scans for alias declarations in frontmatter. Frontmatter is stripped
 // from files resolved via JUGGLE_PROMPTS.
+// Explicit @subdir/name looks up $JUGGLE_PROMPTS/subdir/name as well.
 // All other args are returned as-is.
 func ResolveArgs(args []string) ([]string, error) {
 	resolved := make([]string, 0, len(args))
@@ -44,9 +45,23 @@ func ResolveArgs(args []string) ([]string, error) {
 	return resolved, nil
 }
 
-// resolveFile reads a file reference, trying JUGGLE_PROMPTS fallbacks for bare names.
-// Fallback chain: literal path (raw) → $JUGGLE_PROMPTS/name (stripped) →
-// $JUGGLE_PROMPTS/name.md (stripped) → alias scan (stripped) → error.
+// isLiteralPath reports whether name is an explicit filesystem path that should
+// not fall back to JUGGLE_PROMPTS lookup. Names starting with /, ./, or ../ are
+// treated as literal paths.
+func isLiteralPath(name string) bool {
+	return strings.HasPrefix(name, "/") ||
+		strings.HasPrefix(name, "./") ||
+		strings.HasPrefix(name, "../")
+}
+
+// resolveFile reads a file reference, trying JUGGLE_PROMPTS fallbacks.
+// Fallback chain:
+//   - literal path (raw, no frontmatter stripping)
+//   - if name is a literal path (starts with /, ./, ../): error
+//   - $JUGGLE_PROMPTS/name (stripped)
+//   - $JUGGLE_PROMPTS/name.md (stripped, if no extension)
+//   - if bare name (no /): recursive walk of subdirs, then alias scan
+//   - error
 func resolveFile(name string) ([]byte, error) {
 	// Try literal path first — returned raw, no frontmatter stripping
 	data, err := os.ReadFile(name)
@@ -55,8 +70,8 @@ func resolveFile(name string) ([]byte, error) {
 	}
 	origErr := err
 
-	// Only try JUGGLE_PROMPTS for bare names (no path separator)
-	if strings.Contains(name, "/") {
+	// Names that look like explicit filesystem paths don't fall back to JUGGLE_PROMPTS
+	if isLiteralPath(name) {
 		return nil, fmt.Errorf("failed to read %s: %w", name, origErr)
 	}
 
@@ -65,7 +80,7 @@ func resolveFile(name string) ([]byte, error) {
 		return nil, fmt.Errorf("failed to read %s: %w", name, origErr)
 	}
 
-	// Try $JUGGLE_PROMPTS/name
+	// Try $JUGGLE_PROMPTS/name (works for both bare names and explicit subdir paths)
 	candidate := filepath.Join(promptsDir, name)
 	data, err = os.ReadFile(candidate)
 	if err == nil {
@@ -83,60 +98,138 @@ func resolveFile(name string) ([]byte, error) {
 		}
 	}
 
-	// Scan for alias match in $JUGGLE_PROMPTS
-	body, err := resolveByAlias(name, promptsDir)
+	// For bare names (no /), also walk subdirectories and scan aliases
+	if !strings.Contains(name, "/") {
+		// Walk subdirectories recursively for bare name
+		body, err := resolveNestedBare(name, promptsDir)
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			return body, nil
+		}
+
+		// Scan for alias match across all files in $JUGGLE_PROMPTS (recursively)
+		body, err = resolveByAlias(name, promptsDir)
+		if err != nil {
+			return nil, err
+		}
+		if body != nil {
+			return body, nil
+		}
+
+		return nil, fmt.Errorf("failed to read %s (also tried %s): %w", name, promptsDir, origErr)
+	}
+
+	return nil, fmt.Errorf("failed to read %s: %w", name, origErr)
+}
+
+// resolveNestedBare walks subdirectories of promptsDir (not root level, which is
+// already tried) looking for files matching name or name.md (case-sensitive).
+// Returns error if multiple files match the same bare name. Skips hidden dirs.
+func resolveNestedBare(name, promptsDir string) ([]byte, error) {
+	var matches []string
+
+	_ = filepath.WalkDir(promptsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			if path == promptsDir {
+				return nil
+			}
+			if strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// Skip root-level files (already tried by caller) and hidden files
+		rel, rerr := filepath.Rel(promptsDir, path)
+		if rerr != nil || !strings.Contains(rel, string(filepath.Separator)) {
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		filename := d.Name()
+		basename := strings.TrimSuffix(filename, filepath.Ext(filename))
+		if filename == name || (filepath.Ext(name) == "" && basename == name) {
+			matches = append(matches, rel)
+		}
+		return nil
+	})
+
+	if len(matches) == 0 {
+		return nil, nil
+	}
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("ambiguous name %q matches multiple files: %s", name, strings.Join(matches, ", "))
+	}
+
+	data, err := os.ReadFile(filepath.Join(promptsDir, matches[0]))
 	if err != nil {
 		return nil, err
 	}
-	if body != nil {
-		return body, nil
-	}
-
-	return nil, fmt.Errorf("failed to read %s (also tried %s): %w", name, promptsDir, origErr)
+	_, body := parseFrontmatter(data)
+	return body, nil
 }
 
-// resolveByAlias scans all files in promptsDir for an alias matching name (case-insensitive).
-// Returns the frontmatter-stripped body of the matching file, nil if no match,
-// or an error if two files declare the same alias.
+// resolveByAlias walks all files in promptsDir (recursively) for an alias matching
+// name (case-insensitive). Returns the frontmatter-stripped body of the matching
+// file, nil if no match, or an error if two files declare the same alias.
+// Hidden directories are skipped.
 func resolveByAlias(name, promptsDir string) ([]byte, error) {
 	lower := strings.ToLower(name)
 
-	entries, err := os.ReadDir(promptsDir)
-	if err != nil {
-		return nil, nil
-	}
-
-	// alias → filename for collision detection
+	// alias (lower) → relative path
 	aliasOwners := make(map[string]string)
-	var matchFile string
+	var matchRelPath string
+	var dupAlias, dupFile1, dupFile2 string
 
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		filePath := filepath.Join(promptsDir, entry.Name())
-		data, err := os.ReadFile(filePath)
+	_ = filepath.WalkDir(promptsDir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			continue
+			return nil
 		}
+		if d.IsDir() {
+			if path != promptsDir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(promptsDir, path)
 		fm, _ := parseFrontmatter(data)
 		for _, alias := range fm.Aliases {
 			aliasLower := strings.ToLower(alias)
-			if prev, exists := aliasOwners[aliasLower]; exists {
-				return nil, fmt.Errorf("alias %q declared by both %s and %s", alias, prev, entry.Name())
+			if prev, exists := aliasOwners[aliasLower]; exists && dupAlias == "" {
+				dupAlias = alias
+				dupFile1 = prev
+				dupFile2 = rel
 			}
-			aliasOwners[aliasLower] = entry.Name()
+			aliasOwners[aliasLower] = rel
 			if aliasLower == lower {
-				matchFile = entry.Name()
+				matchRelPath = rel
 			}
 		}
+		return nil
+	})
+
+	// Only error on duplicate if it's the alias we're looking for
+	if dupAlias != "" && strings.ToLower(dupAlias) == lower {
+		return nil, fmt.Errorf("alias %q declared by both %s and %s", dupAlias, dupFile1, dupFile2)
 	}
 
-	if matchFile == "" {
+	if matchRelPath == "" {
 		return nil, nil
 	}
 
-	data, err := os.ReadFile(filepath.Join(promptsDir, matchFile))
+	data, err := os.ReadFile(filepath.Join(promptsDir, matchRelPath))
 	if err != nil {
 		return nil, err
 	}

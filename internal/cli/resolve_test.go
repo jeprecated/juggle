@@ -344,4 +344,127 @@ func TestResolveArgs(t *testing.T) {
 			t.Errorf("got %q, want unchanged content", got[0])
 		}
 	})
+
+	t.Run("explicit path @workflows/fix resolves from JUGGLE_PROMPTS", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("nested fix content"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@workflows/fix"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "nested fix content" {
+			t.Errorf("got %q, want nested fix content", got[0])
+		}
+	})
+
+	t.Run("explicit path @workflows/fix.md resolves from JUGGLE_PROMPTS", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("nested fix content"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@workflows/fix.md"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "nested fix content" {
+			t.Errorf("got %q, want nested fix content", got[0])
+		}
+	})
+
+	t.Run("bare @fix resolves nested workflows/fix.md when no root match", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("nested fix"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@fix"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "nested fix" {
+			t.Errorf("got %q, want nested fix", got[0])
+		}
+	})
+
+	t.Run("root-level wins silently over nested with same bare name", func(t *testing.T) {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "fix.md"), []byte("root fix"), 0644)
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("nested fix"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@fix"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "root fix" {
+			t.Errorf("got %q, want root to win silently", got[0])
+		}
+	})
+
+	t.Run("multiple nested matches for same bare name returns error", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.MkdirAll(filepath.Join(dir, "reviews"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("wf fix"), 0644)
+		os.WriteFile(filepath.Join(dir, "reviews", "fix.md"), []byte("review fix"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		_, err := ResolveArgs([]string{"@fix"})
+		if err == nil {
+			t.Fatal("expected error for ambiguous bare name")
+		}
+		if !strings.Contains(err.Error(), "workflows/fix.md") || !strings.Contains(err.Error(), "reviews/fix.md") {
+			t.Errorf("error should name both candidates, got: %v", err)
+		}
+	})
+
+	t.Run("hidden directory is skipped during bare name resolution", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, ".hidden"), 0755)
+		os.WriteFile(filepath.Join(dir, ".hidden", "fix.md"), []byte("should not find"), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		_, err := ResolveArgs([]string{"@fix"})
+		if err == nil {
+			t.Fatal("expected error since only match is in hidden dir")
+		}
+	})
+
+	t.Run("alias in nested file resolves", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("---\naliases: [wf]\n---\nWorkflow fix."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@wf"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got[0] != "Workflow fix." {
+			t.Errorf("got %q, want alias to resolve to nested file body", got[0])
+		}
+	})
+
+	t.Run("frontmatter stripped from nested JUGGLE_PROMPTS files", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("---\naliases: []\n---\nNested content."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		got, err := ResolveArgs([]string{"@workflows/fix"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(got[0], "---") {
+			t.Errorf("got %q, frontmatter should be stripped from nested file", got[0])
+		}
+		if got[0] != "Nested content." {
+			t.Errorf("got %q, want body only", got[0])
+		}
+	})
 }

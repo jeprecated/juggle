@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -283,6 +284,104 @@ func TestCompleteArgs(t *testing.T) {
 			if c == "@sub\t(→ subagent)" {
 				t.Errorf("alias completion should not appear when base name already provides @sub, got %v", completions)
 			}
+		}
+	})
+}
+
+func TestCompleteArgsRecursive(t *testing.T) {
+	t.Run("@ lists nested files with relative path prefix", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@")
+		found := false
+		for _, c := range completions {
+			if c == "@workflows/fix" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected @workflows/fix in completions, got %v", completions)
+		}
+	})
+
+	t.Run("bare partial matches nested file by base name", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@fix")
+		found := false
+		for _, c := range completions {
+			if c == "@workflows/fix" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected @workflows/fix when typing @fix, got %v", completions)
+		}
+	})
+
+	t.Run("partial with path prefix matches files in that subdir", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte(""), 0644)
+		os.WriteFile(filepath.Join(dir, "workflows", "review.md"), []byte(""), 0644)
+		os.WriteFile(filepath.Join(dir, "root.md"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@workflows/")
+		for _, c := range completions {
+			if c == "@root" {
+				t.Errorf("@root should not appear for @workflows/ prefix, got %v", completions)
+			}
+		}
+		var hasWFFix, hasWFReview bool
+		for _, c := range completions {
+			if c == "@workflows/fix" {
+				hasWFFix = true
+			}
+			if c == "@workflows/review" {
+				hasWFReview = true
+			}
+		}
+		if !hasWFFix || !hasWFReview {
+			t.Errorf("expected @workflows/fix and @workflows/review, got %v", completions)
+		}
+	})
+
+	t.Run("hidden dirs skipped in recursive completion", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, ".hidden"), 0755)
+		os.WriteFile(filepath.Join(dir, ".hidden", "secret.md"), []byte(""), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@")
+		for _, c := range completions {
+			if strings.Contains(c, "secret") || strings.Contains(c, ".hidden") {
+				t.Errorf("hidden dir file should not appear, got %v", completions)
+			}
+		}
+	})
+
+	t.Run("alias in nested file appears in completions", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, "workflows"), 0755)
+		os.WriteFile(filepath.Join(dir, "workflows", "fix.md"), []byte("---\naliases: [wf]\n---\nBody."), 0644)
+		t.Setenv("JUGGLE_PROMPTS", dir)
+
+		completions, _ := completeArgs(nil, nil, "@wf")
+		found := false
+		for _, c := range completions {
+			if c == "@wf\t(→ workflows/fix)" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected @wf (→ workflows/fix) alias completion, got %v", completions)
 		}
 	})
 }

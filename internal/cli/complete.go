@@ -9,9 +9,11 @@ import (
 )
 
 // completeArgs provides shell completion for positional arguments.
-// When an arg starts with @, it suggests files from $JUGGLE_PROMPTS and any
-// subdirectory whose name contains "prompts" found under the working directory.
+// When an arg starts with @, it suggests files from $JUGGLE_PROMPTS (recursively,
+// with subdirectory paths prefixed) and any subdirectory whose name contains
+// "prompts" found under the working directory.
 // Aliases declared in frontmatter are also suggested with a source hint.
+// Bare partial (no /) matches by base filename. Partial with / matches full path.
 func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if !strings.HasPrefix(toComplete, "@") {
 		return nil, cobra.ShellCompDirectiveNoFileComp
@@ -21,6 +23,63 @@ func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 	seen := make(map[string]struct{})
 	var completions []string
 
+	// matchesPartial returns true if the relative path (e.g. "workflows/fix")
+	// matches the partial. If partial has no /, match by base filename (fuzzy).
+	// If partial has /, match by full relative path prefix.
+	matchesPartial := func(rel string) bool {
+		if strings.Contains(partial, "/") {
+			return strings.HasPrefix(strings.ToLower(rel), partial)
+		}
+		// Bare partial: match against the base filename
+		base := filepath.Base(rel)
+		baseNoExt := strings.TrimSuffix(base, filepath.Ext(base))
+		return strings.HasPrefix(strings.ToLower(base), partial) ||
+			strings.HasPrefix(strings.ToLower(baseNoExt), partial)
+	}
+
+	// addFromPromptsDirRecursive walks promptsDir recursively and adds completions
+	// using relative paths. mdOnly restricts to .md files.
+	addFromPromptsDirRecursive := func(promptsDir string, mdOnly bool) {
+		_ = filepath.WalkDir(promptsDir, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
+			}
+			if d.IsDir() {
+				if path != promptsDir && strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			name := d.Name()
+			if strings.HasPrefix(name, ".") {
+				return nil
+			}
+			if mdOnly && !strings.EqualFold(filepath.Ext(name), ".md") {
+				return nil
+			}
+			rel, rerr := filepath.Rel(promptsDir, path)
+			if rerr != nil {
+				return nil
+			}
+			// Use path-separator-normalized forward slashes for completions
+			rel = filepath.ToSlash(rel)
+			baseNoExt := strings.TrimSuffix(filepath.Base(rel), filepath.Ext(filepath.Base(rel)))
+			// Dedup key: use the path without extension
+			relNoExt := strings.TrimSuffix(rel, filepath.Ext(rel))
+			if !matchesPartial(rel) {
+				return nil
+			}
+			if _, dup := seen[relNoExt]; !dup {
+				seen[relNoExt] = struct{}{}
+				_ = baseNoExt
+				completions = append(completions, "@"+relNoExt)
+			}
+			return nil
+		})
+	}
+
+	// addFromDir lists files in a single directory (non-recursive), used for
+	// cwd-local prompt dirs (existing behaviour, not changed to recursive).
 	addFromDir := func(dir string, mdOnly bool) {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -47,15 +106,15 @@ func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 		}
 	}
 
-	// Search $JUGGLE_PROMPTS (all files, existing behaviour)
+	// Search $JUGGLE_PROMPTS recursively
 	promptsDir := os.Getenv("JUGGLE_PROMPTS")
 	if promptsDir != "" {
-		addFromDir(promptsDir, false)
-		// Also add alias completions from JUGGLE_PROMPTS frontmatter
+		addFromPromptsDirRecursive(promptsDir, false)
+		// Also add alias completions from JUGGLE_PROMPTS frontmatter (recursively)
 		addAliasCompletions(promptsDir, partial, seen, &completions)
 	}
 
-	// Search subdirs containing "prompts" in their name under cwd
+	// Search subdirs containing "prompts" in their name under cwd (non-recursive per dir)
 	if cwd, err := os.Getwd(); err == nil {
 		for _, dir := range findPromptDirs(cwd) {
 			addFromDir(dir, true)
@@ -68,28 +127,39 @@ func completeArgs(cmd *cobra.Command, args []string, toComplete string) ([]strin
 	return completions, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
 }
 
-// addAliasCompletions scans promptsDir for files with aliases in frontmatter
-// and appends matching alias completions (with source hint) to completions.
-// An alias is not added if a base name already occupies that slot in seen.
+// addAliasCompletions walks promptsDir recursively for files with aliases in
+// frontmatter and appends matching alias completions (with source hint) to
+// completions. An alias is not added if its slot is already in seen.
+// Hidden directories are skipped.
 func addAliasCompletions(promptsDir, partial string, seen map[string]struct{}, completions *[]string) {
-	entries, err := os.ReadDir(promptsDir)
-	if err != nil {
-		return
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
+	_ = filepath.WalkDir(promptsDir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
 		}
-		filePath := filepath.Join(promptsDir, entry.Name())
+		if d.IsDir() {
+			if path != promptsDir && strings.HasPrefix(d.Name(), ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if strings.HasPrefix(d.Name(), ".") {
+			return nil
+		}
+		filePath := path
 		data, err := os.ReadFile(filePath)
 		if err != nil {
-			continue
+			return nil
 		}
 		fm, _ := parseFrontmatter(data)
 		if len(fm.Aliases) == 0 {
-			continue
+			return nil
 		}
-		base := strings.TrimSuffix(entry.Name(), filepath.Ext(entry.Name()))
+		rel, rerr := filepath.Rel(promptsDir, path)
+		if rerr != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		base := strings.TrimSuffix(rel, filepath.Ext(rel))
 		for _, alias := range fm.Aliases {
 			if !strings.HasPrefix(strings.ToLower(alias), partial) {
 				continue
@@ -101,7 +171,8 @@ func addAliasCompletions(promptsDir, partial string, seen map[string]struct{}, c
 			seen[alias] = struct{}{}
 			*completions = append(*completions, "@"+alias+"\t(→ "+base+")")
 		}
-	}
+		return nil
+	})
 }
 
 // findPromptDirs walks root and returns all subdirectory paths whose base name
