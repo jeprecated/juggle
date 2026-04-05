@@ -10,10 +10,36 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// tomlStringOrList decodes a TOML value that is either a bare string or a list
+// of strings. Storing watch = "./tasks" and watch = ["./a", "./b"] are both valid.
+type tomlStringOrList []string
+
+func (t *tomlStringOrList) UnmarshalTOML(v interface{}) error {
+	switch x := v.(type) {
+	case string:
+		*t = []string{x}
+		return nil
+	case []interface{}:
+		out := make([]string, 0, len(x))
+		for _, item := range x {
+			s, ok := item.(string)
+			if !ok {
+				return fmt.Errorf("watch: expected string element, got %T", item)
+			}
+			out = append(out, s)
+		}
+		*t = out
+		return nil
+	default:
+		return fmt.Errorf("watch: expected string or list of strings, got %T", v)
+	}
+}
+
 // FileConfig holds all config values that can be set in juggle.toml.
 // All fields are pointers: nil means the key was absent from the config file.
 type FileConfig struct {
-	Iterations   *int     `toml:"iterations"`
+	Watch        *tomlStringOrList `toml:"watch"`
+	Iterations   *int              `toml:"iterations"`
 	Model        *string  `toml:"model"`
 	Provider     *string  `toml:"provider"`
 	Delay        *int     `toml:"delay"`
@@ -101,6 +127,9 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 		}
 	}
 
+	if cfg.Watch != nil {
+		set("watch", func() { flags.watch = []string(*cfg.Watch) })
+	}
 	if cfg.Iterations != nil {
 		set("iterations", func() { flags.iterations = *cfg.Iterations })
 	}

@@ -131,7 +131,7 @@ func TestPrintDryRun_WatchMode(t *testing.T) {
 	cfg := Config{
 		Content:    "process tasks",
 		Iterations: 2,
-		Watch:      "/tasks",
+		Watch:      []string{"/tasks"},
 	}
 	printDryRun(cfg, &buf)
 	out := buf.String()

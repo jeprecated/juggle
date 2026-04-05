@@ -234,3 +234,60 @@ func TestApplyFileConfig_AllSupportedFields(t *testing.T) {
 		t.Errorf("workers: expected 4, got %d", flags.workers)
 	}
 }
+
+func TestLoadConfig_WatchAsString(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "juggle.toml"), []byte(`watch = "./tasks"`), 0644)
+
+	var stderr bytes.Buffer
+	cfg, _, err := LoadConfig(false, dir, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg == nil || cfg.Watch == nil {
+		t.Fatal("expected non-nil config with Watch set")
+	}
+	if len(*cfg.Watch) != 1 || (*cfg.Watch)[0] != "./tasks" {
+		t.Errorf("expected Watch=[./tasks], got %v", *cfg.Watch)
+	}
+}
+
+func TestLoadConfig_WatchAsList(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "juggle.toml"), []byte("watch = [\"./tasks1\", \"./tasks2\"]"), 0644)
+
+	var stderr bytes.Buffer
+	cfg, _, err := LoadConfig(false, dir, &stderr)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg == nil || cfg.Watch == nil {
+		t.Fatal("expected non-nil config with Watch set")
+	}
+	if len(*cfg.Watch) != 2 {
+		t.Errorf("expected 2 watch dirs, got %d: %v", len(*cfg.Watch), *cfg.Watch)
+	}
+	if (*cfg.Watch)[0] != "./tasks1" || (*cfg.Watch)[1] != "./tasks2" {
+		t.Errorf("unexpected watch values: %v", *cfg.Watch)
+	}
+}
+
+func TestApplyFileConfig_WatchSetsFlags(t *testing.T) {
+	origWatch := flags.watch
+	t.Cleanup(func() { flags.watch = origWatch })
+
+	flags.watch = nil
+	w := tomlStringOrList([]string{"./tasks1", "./tasks2"})
+	cfg := &FileConfig{Watch: &w}
+
+	changed := func(string) bool { return false }
+	var stderr bytes.Buffer
+	ApplyFileConfig(cfg, changed, false, &stderr)
+
+	if len(flags.watch) != 2 {
+		t.Fatalf("expected 2 watch dirs, got %d: %v", len(flags.watch), flags.watch)
+	}
+	if flags.watch[0] != "./tasks1" || flags.watch[1] != "./tasks2" {
+		t.Errorf("unexpected watch flags: %v", flags.watch)
+	}
+}

@@ -194,7 +194,7 @@ func TestRunWatchTask_FileDeletedByAgent(t *testing.T) {
 
 func TestRunWatch_InvalidDirectory(t *testing.T) {
 	cfg := Config{
-		Watch:  "/nonexistent/directory",
+		Watch:  []string{"/nonexistent/directory"},
 		Stderr: &bytes.Buffer{},
 	}
 	err := RunWatch(cfg)
@@ -209,7 +209,7 @@ func TestRunWatch_NotADirectory(t *testing.T) {
 	os.WriteFile(filePath, []byte("x"), 0644)
 
 	cfg := Config{
-		Watch:  filePath,
+		Watch:  []string{filePath},
 		Stderr: &bytes.Buffer{},
 	}
 	err := RunWatch(cfg)
@@ -249,7 +249,7 @@ func TestRunWatch_PreClosedShutdown(t *testing.T) {
 	close(shutdown)
 	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
 	cfg := Config{
-		Watch:    dir,
+		Watch:    []string{dir},
 		Runner:   mock,
 		Shutdown: shutdown,
 		Stderr:   &bytes.Buffer{},
@@ -471,7 +471,7 @@ func TestRunWatch_MaxCostGuardPrintsSummaryAndExitsClean(t *testing.T) {
 	)
 	var stderr bytes.Buffer
 	cfg := Config{
-		Watch:      dir,
+		Watch:      []string{dir},
 		Content:    "context",
 		Iterations: 5,
 		Model:      "sonnet",
@@ -704,7 +704,7 @@ func TestRunWatchWorkers_WorkerIDInEnv(t *testing.T) {
 	}}
 
 	cfg := Config{
-		Watch:      dir,
+		Watch:      []string{dir},
 		Workers:    2,
 		Iterations: 5,
 		Runner:     runner,
@@ -781,7 +781,7 @@ func TestRunWatchWorkers_NoDuplicateTaskSelection(t *testing.T) {
 	}}
 
 	cfg := Config{
-		Watch:      dir,
+		Watch:      []string{dir},
 		Workers:    2,
 		Iterations: 10,
 		Runner:     runner,
@@ -824,7 +824,7 @@ func TestRun_WatchRelativeToWorkDir(t *testing.T) {
 
 	cfg := Config{
 		Content:    "instructions",
-		Watch:      watchSubdir, // relative
+		Watch:      []string{watchSubdir}, // relative
 		WorkDir:    workdir,
 		Iterations: 1,
 		Runner:     runner,
@@ -858,7 +858,7 @@ func TestRun_WatchAbsoluteNotChangedByWorkDir(t *testing.T) {
 
 	cfg := Config{
 		Content:    "instructions",
-		Watch:      watchdir, // absolute — should not be joined to workdir
+		Watch:      []string{watchdir}, // absolute — should not be joined to workdir
 		WorkDir:    workdir,
 		Iterations: 1,
 		Runner:     runner,
@@ -872,5 +872,49 @@ func TestRun_WatchAbsoluteNotChangedByWorkDir(t *testing.T) {
 	}
 	if callCount == 0 {
 		t.Error("expected at least one Run call (absolute watch path should work with workdir)")
+	}
+}
+
+func TestRun_MultiWatch_RelativePathsResolvedAgainstWorkDir(t *testing.T) {
+	workdir := t.TempDir()
+	sub1 := "tasks1"
+	sub2 := "tasks2"
+	dir1 := filepath.Join(workdir, sub1)
+	dir2 := filepath.Join(workdir, sub2)
+	os.Mkdir(dir1, 0755)
+	os.Mkdir(dir2, 0755)
+	taskPath := filepath.Join(dir1, "task.md")
+	os.WriteFile(taskPath, []byte("work"), 0644)
+
+	shutdown := make(chan struct{})
+	callCount := 0
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		// Delete the task file so it's not re-claimed, then signal shutdown.
+		for _, e := range opts.Env {
+			if strings.HasPrefix(e, "JUGGLE_TASK_FILE=") {
+				os.Remove(strings.TrimPrefix(e, "JUGGLE_TASK_FILE="))
+				break
+			}
+		}
+		callCount++
+		close(shutdown)
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:      []string{sub1, sub2}, // relative paths
+		WorkDir:    workdir,
+		Iterations: 1,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	err := Run(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount == 0 {
+		t.Error("expected at least one task to run (relative multi-watch paths not resolved)")
 	}
 }

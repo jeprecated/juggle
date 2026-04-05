@@ -64,7 +64,7 @@ var errCostGuard = errors.New("cost guard triggered")
 // Config holds all CLI configuration for a juggle run.
 type Config struct {
 	Content      string        // Resolved prompt content (joined)
-	Watch        string        // Watch directory path
+	Watch        []string      // Watch directory paths (repeatable --watch)
 	Iterations   int           // Max iterations (0 = unlimited)
 	Model        string        // Model name
 	Provider     string        // Provider name
@@ -180,7 +180,7 @@ func writeSummary(cfg Config, stats runStats) {
 
 // flags is used for cobra flag binding.
 var flags struct {
-	watch        string
+	watch        []string
 	iterations   int
 	model        string
 	provider     string
@@ -224,7 +224,7 @@ var flags struct {
 
 func init() {
 	f := rootCmd.Flags()
-	f.StringVar(&flags.watch, "watch", "", "watch directory for task files")
+	f.StringArrayVar(&flags.watch, "watch", nil, "watch directory for task files (repeatable)")
 	f.IntVarP(&flags.iterations, "iterations", "n", 10, "max iterations (0 = unlimited)")
 	f.StringVar(&flags.model, "model", "sonnet", "model name")
 	f.StringVar(&flags.provider, "provider", "claude", "provider name")
@@ -408,7 +408,7 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	// Show help when there is no content and no watch mode.
-	if flags.watch == "" && len(resolved) == 0 {
+	if len(flags.watch) == 0 && len(resolved) == 0 {
 		return cmd.Help()
 	}
 
@@ -561,7 +561,7 @@ func Run(cfg Config) error {
 		return fmt.Errorf("--retries must be non-negative")
 	}
 
-	if cfg.Workers > 1 && cfg.Watch == "" {
+	if cfg.Workers > 1 && len(cfg.Watch) == 0 {
 		return fmt.Errorf("--workers requires --watch")
 	}
 
@@ -571,9 +571,13 @@ func Run(cfg Config) error {
 		}
 	}
 
-	// Resolve relative watch path against workdir
-	if cfg.Watch != "" && cfg.WorkDir != "" && !filepath.IsAbs(cfg.Watch) {
-		cfg.Watch = filepath.Join(cfg.WorkDir, cfg.Watch)
+	// Resolve relative watch paths against workdir
+	if cfg.WorkDir != "" {
+		for i, w := range cfg.Watch {
+			if !filepath.IsAbs(w) {
+				cfg.Watch[i] = filepath.Join(cfg.WorkDir, w)
+			}
+		}
 	}
 
 	switch cfg.OnFailure {
@@ -588,7 +592,7 @@ func Run(cfg Config) error {
 		return nil
 	}
 
-	if cfg.Watch != "" {
+	if len(cfg.Watch) > 0 {
 		return RunWatch(cfg)
 	}
 

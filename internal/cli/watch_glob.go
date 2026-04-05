@@ -103,6 +103,8 @@ func runGlobWatch(cfg Config) error {
 }
 
 func runGlobWatchSerial(cfg Config) error {
+	globPattern := cfg.Watch[0]
+
 	pollDelay := time.Duration(cfg.Delay) * time.Minute
 	if pollDelay < 30*time.Second {
 		pollDelay = 30 * time.Second
@@ -110,7 +112,7 @@ func runGlobWatchSerial(cfg Config) error {
 
 	var dash *workerDashboard
 	if cfg.Dashboard {
-		dash = setupWorkerDashboard(cfg.Watch, 1, cfg.Stderr)
+		dash = setupWorkerDashboard(globPattern, 1, cfg.Stderr)
 		defer dash.stop()
 		if logFile, closeLog := dash.openWorkerLog(0); logFile != nil {
 			cfg.Stderr = logFile
@@ -128,9 +130,9 @@ func runGlobWatchSerial(cfg Config) error {
 		default:
 		}
 
-		dirs, err := expandGlobDirs(cfg.WorkDir, cfg.Watch)
+		dirs, err := expandGlobDirs(cfg.WorkDir, globPattern)
 		if err != nil {
-			return fmt.Errorf("expanding glob %q: %w", cfg.Watch, err)
+			return fmt.Errorf("expanding glob %q: %w", globPattern, err)
 		}
 
 		taskPath := ""
@@ -149,7 +151,7 @@ func runGlobWatchSerial(cfg Config) error {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
-			fmt.Fprintf(cfg.Stderr, "No tasks found matching %s, polling in %v...\n", cfg.Watch, pollDelay)
+			fmt.Fprintf(cfg.Stderr, "No tasks found matching %s, polling in %v...\n", globPattern, pollDelay)
 			select {
 			case <-time.After(pollDelay):
 			case <-cfg.Shutdown:
@@ -206,6 +208,8 @@ func runGlobWatchSerial(cfg Config) error {
 }
 
 func runGlobWatchWorkers(cfg Config) error {
+	globPattern := cfg.Watch[0]
+
 	pollDelay := time.Duration(cfg.Delay) * time.Minute
 	if pollDelay < 30*time.Second {
 		pollDelay = 30 * time.Second
@@ -213,7 +217,7 @@ func runGlobWatchWorkers(cfg Config) error {
 
 	// Dashboard is auto-enabled for glob watch workers (multiple workers = interleaved output).
 	cfg.Dashboard = true
-	dash := setupWorkerDashboard(cfg.Watch, cfg.Workers, cfg.Stderr)
+	dash := setupWorkerDashboard(globPattern, cfg.Workers, cfg.Stderr)
 	defer dash.stop()
 
 	coord := newWorkerCoordinator()
@@ -221,7 +225,7 @@ func runGlobWatchWorkers(cfg Config) error {
 	var wg sync.WaitGroup
 
 	getDirs := func() []string {
-		dirs, _ := expandGlobDirs(cfg.WorkDir, cfg.Watch)
+		dirs, _ := expandGlobDirs(cfg.WorkDir, globPattern)
 		return dirs
 	}
 
@@ -332,5 +336,175 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 			dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 		}
 	}
+}
+
+// runMultiWatch handles --watch specified more than once. It merges all watch
+// entries (expanding any glob patterns each poll cycle) into a shared directory
+// list, and uses claimFromDirs so a shared worker pool picks across all dirs.
+// Dashboard is auto-enabled to handle interleaved output from multiple dirs.
+func runMultiWatch(cfg Config) error {
+	// Auto-enable dashboard for multi-watch (same as glob watch).
+	cfg.Dashboard = true
+
+	if cfg.Workers > 1 {
+		return runMultiWatchWorkers(cfg)
+	}
+	return runMultiWatchSerial(cfg)
+}
+
+// getDirsForWatch expands each watch entry: glob patterns are expanded against
+// workdir, literal paths are included as-is. Returns the merged directory list.
+func getDirsForWatch(watches []string, workDir string) []string {
+	var dirs []string
+	for _, w := range watches {
+		if isGlobPattern(w) {
+			expanded, _ := expandGlobDirs(workDir, w)
+			dirs = append(dirs, expanded...)
+		} else {
+			dirs = append(dirs, w)
+		}
+	}
+	return dirs
+}
+
+func runMultiWatchSerial(cfg Config) error {
+	pollDelay := time.Duration(cfg.Delay) * time.Minute
+	if pollDelay < 30*time.Second {
+		pollDelay = 30 * time.Second
+	}
+
+	title := strings.Join(cfg.Watch, ", ")
+
+	var dash *workerDashboard
+	if cfg.Dashboard {
+		dash = setupWorkerDashboard(title, 1, cfg.Stderr)
+		defer dash.stop()
+		if logFile, closeLog := dash.openWorkerLog(0); logFile != nil {
+			cfg.Stderr = logFile
+			defer closeLog()
+		}
+	}
+
+	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
+	coord := newWorkerCoordinator()
+
+	for {
+		select {
+		case <-cfg.Shutdown:
+			writeSummary(cfg, stats)
+			return ErrInterrupted
+		default:
+		}
+
+		dirs := getDirsForWatch(cfg.Watch, cfg.WorkDir)
+		taskPath, err := coord.claimFromDirs(dirs)
+		if err != nil {
+			return err
+		}
+
+		if taskPath == "" {
+			if dash != nil {
+				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			}
+			fmt.Fprintf(cfg.Stderr, "No tasks found in watched dirs, polling in %v...\n", pollDelay)
+			select {
+			case <-time.After(pollDelay):
+			case <-cfg.Shutdown:
+			}
+			continue
+		}
+
+		taskCfg := cfg
+		if vcsRoot := FindVCSRoot(filepath.Dir(taskPath)); vcsRoot != "" {
+			taskCfg.WorkDir = vcsRoot
+		}
+
+		filename := filepath.Base(taskPath)
+		if dash != nil {
+			logFile := dash.logFiles[0]
+			dash.dash.Update(0, WorkerState{
+				Status:    WorkerActive,
+				TaskName:  filename,
+				Iteration: 0,
+				MaxIter:   cfg.Iterations,
+				LogFile:   logFile,
+			})
+			taskCfg.OnIterDone = func(iter, maxIter int) {
+				dash.dash.Update(0, WorkerState{
+					Status:    WorkerActive,
+					TaskName:  filename,
+					Iteration: iter,
+					MaxIter:   maxIter,
+					LogFile:   logFile,
+				})
+			}
+		}
+		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
+
+		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+			coord.release(taskPath)
+			if dash != nil {
+				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			}
+			if errors.Is(err, ErrInterrupted) {
+				writeSummary(cfg, stats)
+				return ErrInterrupted
+			}
+			if errors.Is(err, errCostGuard) {
+				writeSummary(cfg, stats)
+				return nil
+			}
+			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
+			continue
+		}
+		coord.release(taskPath)
+		if dash != nil {
+			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+		}
+	}
+}
+
+func runMultiWatchWorkers(cfg Config) error {
+	pollDelay := time.Duration(cfg.Delay) * time.Minute
+	if pollDelay < 30*time.Second {
+		pollDelay = 30 * time.Second
+	}
+
+	title := strings.Join(cfg.Watch, ", ")
+	dash := setupWorkerDashboard(title, cfg.Workers, cfg.Stderr)
+	defer dash.stop()
+
+	coord := newWorkerCoordinator()
+	errs := make(chan error, cfg.Workers)
+	var wg sync.WaitGroup
+
+	getDirs := func() []string {
+		return getDirsForWatch(cfg.Watch, cfg.WorkDir)
+	}
+
+	for i := 0; i < cfg.Workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			workerCfg := cfg
+			logFile, closeLog := dash.openWorkerLog(workerID)
+			defer closeLog()
+			if logFile != nil {
+				workerCfg.Stderr = logFile
+			}
+			workerCfg.Runner = &workerIDRunner{inner: cfg.Runner, workerID: workerID}
+			if err := runGlobWorkerLoop(workerCfg, getDirs, coord, pollDelay, dash, workerID); err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		return err
+	}
+	return nil
 }
 

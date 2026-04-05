@@ -156,7 +156,7 @@ func TestWatchTaskProcessing(t *testing.T) {
 	var stderr bytes.Buffer
 	cfg := cli.Config{
 		Content:    "instructions",
-		Watch:      dir,
+		Watch:      []string{dir},
 		Iterations: 1,
 		Model:      "sonnet",
 		Runner:     mock,
@@ -190,7 +190,7 @@ func TestWatchTaskProcessing(t *testing.T) {
 
 func TestWatchInvalidDirectory(t *testing.T) {
 	cfg := cli.Config{
-		Watch:  "/nonexistent/directory",
+		Watch:  []string{"/nonexistent/directory"},
 		Stderr: &bytes.Buffer{},
 	}
 	err := cli.RunWatch(cfg)

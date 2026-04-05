@@ -121,24 +121,30 @@ func (r *workerIDRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
 	return r.inner.Run(opts)
 }
 
-// RunWatch processes task files from a watched directory or glob pattern.
+// RunWatch processes task files from watched directories or glob patterns.
 // For each file, reads contents, runs iterations, then picks next.
 // Idles when empty, polling at delay interval (minimum 30 seconds).
-// When cfg.Watch is a glob pattern (contains * ? [), RunWatch expands it to find
-// all matching directories (including new ones on each poll cycle) and sets the
-// agent's working directory to the VCS root of the matched task file.
-// When cfg.Workers > 1, spawns that many concurrent worker goroutines.
+// Routing:
+//   - len(Watch) == 1, glob pattern → runGlobWatch (expands glob each cycle)
+//   - len(Watch) == 1, plain dir   → single-dir watch loop
+//   - len(Watch) > 1               → runMultiWatch (merges all dirs via claimFromDirs)
 func RunWatch(cfg Config) error {
-	if isGlobPattern(cfg.Watch) {
+	if len(cfg.Watch) > 1 {
+		return runMultiWatch(cfg)
+	}
+
+	watchDir := cfg.Watch[0]
+
+	if isGlobPattern(watchDir) {
 		return runGlobWatch(cfg)
 	}
 
-	info, err := os.Stat(cfg.Watch)
+	info, err := os.Stat(watchDir)
 	if err != nil {
 		return fmt.Errorf("watch directory: %w", err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("watch path is not a directory: %s", cfg.Watch)
+		return fmt.Errorf("watch path is not a directory: %s", watchDir)
 	}
 
 	if cfg.Workers > 1 {
@@ -153,7 +159,7 @@ func RunWatch(cfg Config) error {
 
 	var dash *workerDashboard
 	if cfg.Dashboard {
-		dash = setupWorkerDashboard(cfg.Watch, 1, cfg.Stderr)
+		dash = setupWorkerDashboard(watchDir, 1, cfg.Stderr)
 		defer dash.stop()
 		if logFile, closeLog := dash.openWorkerLog(0); logFile != nil {
 			cfg.Stderr = logFile
@@ -172,7 +178,7 @@ func RunWatch(cfg Config) error {
 		default:
 		}
 
-		taskPath, err := ScanWatchDir(cfg.Watch)
+		taskPath, err := ScanWatchDir(watchDir)
 		if err != nil {
 			return err
 		}
@@ -545,6 +551,8 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 // Each worker prefixes its stderr output with [worker-N], or writes to a log
 // file when the dashboard is active.
 func runWatchWorkers(cfg Config) error {
+	watchDir := cfg.Watch[0]
+
 	pollDelay := time.Duration(cfg.Delay) * time.Minute
 	if pollDelay < 30*time.Second {
 		pollDelay = 30 * time.Second
@@ -552,7 +560,7 @@ func runWatchWorkers(cfg Config) error {
 
 	var dash *workerDashboard
 	if cfg.Dashboard {
-		dash = setupWorkerDashboard(cfg.Watch, cfg.Workers, cfg.Stderr)
+		dash = setupWorkerDashboard(watchDir, cfg.Workers, cfg.Stderr)
 		defer dash.stop()
 	}
 
@@ -608,7 +616,7 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 		default:
 		}
 
-		taskPath, err := coord.claim(cfg.Watch)
+		taskPath, err := coord.claim(cfg.Watch[0])
 		if err != nil {
 			return err
 		}

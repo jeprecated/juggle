@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/ohare93/juggle/internal/agent"
@@ -248,7 +249,7 @@ func TestRunWatch_GlobPattern_SetsVCSRootAsWorkDir(t *testing.T) {
 	}}
 
 	cfg := Config{
-		Watch:      "**/.frontloop/ready",
+		Watch:      []string{"**/.frontloop/ready"},
 		WorkDir:    base, // basedir for glob expansion
 		Iterations: 1,
 		Runner:     runner,
@@ -294,6 +295,173 @@ func TestExpandGlobDirs_DiscoveryOnSubsequentCall(t *testing.T) {
 	}
 }
 
+func TestRunWatch_MultiWatch_PicksFromBothDirs(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	task1 := filepath.Join(dir1, "task1.md")
+	task2 := filepath.Join(dir2, "task2.md")
+	os.WriteFile(task1, []byte("task from dir1"), 0644)
+	os.WriteFile(task2, []byte("task from dir2"), 0644)
+
+	shutdown := make(chan struct{})
+	var mu sync.Mutex
+	processed := map[string]bool{}
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		for _, e := range opts.Env {
+			if strings.HasPrefix(e, "JUGGLE_TASK_FILE=") {
+				taskFile := strings.TrimPrefix(e, "JUGGLE_TASK_FILE=")
+				base := filepath.Base(taskFile)
+				// Delete so it's not re-claimed on next poll cycle.
+				os.Remove(taskFile)
+				mu.Lock()
+				processed[base] = true
+				total := len(processed)
+				mu.Unlock()
+				if total >= 2 {
+					select {
+					case <-shutdown:
+					default:
+						close(shutdown)
+					}
+				}
+				break
+			}
+		}
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:      []string{dir1, dir2},
+		Iterations: 1,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	n := len(processed)
+	mu.Unlock()
+	if n < 2 {
+		t.Errorf("expected tasks from both dirs to be processed, got %d: %v", n, processed)
+	}
+}
+
+func TestRunWatch_MultiWatch_WorkersAcrossMultipleDirs(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+	task1 := filepath.Join(dir1, "task-a.md")
+	task2 := filepath.Join(dir2, "task-b.md")
+	os.WriteFile(task1, []byte("a"), 0644)
+	os.WriteFile(task2, []byte("b"), 0644)
+
+	shutdown := make(chan struct{})
+	var mu sync.Mutex
+	callCount := 0
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		for _, e := range opts.Env {
+			if strings.HasPrefix(e, "JUGGLE_TASK_FILE=") {
+				os.Remove(strings.TrimPrefix(e, "JUGGLE_TASK_FILE="))
+				break
+			}
+		}
+		mu.Lock()
+		callCount++
+		n := callCount
+		mu.Unlock()
+		if n >= 2 {
+			select {
+			case <-shutdown:
+			default:
+				close(shutdown)
+			}
+		}
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:      []string{dir1, dir2},
+		Workers:    2,
+		Iterations: 1,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount < 1 {
+		t.Error("expected at least one task to run across multiple dirs")
+	}
+}
+
+func TestRunWatch_MultiWatch_GlobAndLiteralMixed(t *testing.T) {
+	base := t.TempDir()
+	// Literal dir
+	litDir := filepath.Join(base, "literal-tasks")
+	os.Mkdir(litDir, 0755)
+	litTask := filepath.Join(litDir, "lit-task.md")
+	os.WriteFile(litTask, []byte("lit"), 0644)
+	// Glob dir
+	repoDir := filepath.Join(base, "my-repo", ".frontloop", "ready")
+	os.MkdirAll(repoDir, 0755)
+	globTask := filepath.Join(repoDir, "glob-task.md")
+	os.WriteFile(globTask, []byte("glob"), 0644)
+
+	shutdown := make(chan struct{})
+	var mu sync.Mutex
+	processed := map[string]bool{}
+	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
+		for _, e := range opts.Env {
+			if strings.HasPrefix(e, "JUGGLE_TASK_FILE=") {
+				taskFile := strings.TrimPrefix(e, "JUGGLE_TASK_FILE=")
+				b := filepath.Base(taskFile)
+				os.Remove(taskFile) // delete so it's not re-claimed
+				mu.Lock()
+				processed[b] = true
+				n := len(processed)
+				mu.Unlock()
+				if n >= 2 {
+					select {
+					case <-shutdown:
+					default:
+						close(shutdown)
+					}
+				}
+				break
+			}
+		}
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:      []string{litDir, "**/.frontloop/ready"},
+		WorkDir:    base,
+		Iterations: 1,
+		Runner:     runner,
+		Shutdown:   shutdown,
+		Stderr:     &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if err != nil && !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mu.Lock()
+	n := len(processed)
+	mu.Unlock()
+	if n < 2 {
+		t.Errorf("expected tasks from both literal and glob dirs, got %d: %v", n, processed)
+	}
+}
+
 func TestRunWatch_GlobPattern_WorkersCapConcurrency(t *testing.T) {
 	base := t.TempDir()
 
@@ -321,7 +489,7 @@ func TestRunWatch_GlobPattern_WorkersCapConcurrency(t *testing.T) {
 	}}
 
 	cfg := Config{
-		Watch:      "**/.frontloop/ready",
+		Watch:      []string{"**/.frontloop/ready"},
 		WorkDir:    base,
 		Workers:    2,
 		Iterations: 1,

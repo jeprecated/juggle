@@ -33,7 +33,7 @@ func printDryRun(cfg Config, w io.Writer) {
 
 	// 4. main prompt
 	var prompt string
-	if cfg.Watch != "" {
+	if len(cfg.Watch) > 0 {
 		prompt = BuildWatchPrompt("<task file contents>", cfg.Content, "<task-file>", 1, cfg.Iterations)
 	} else {
 		prompt = BuildPrompt(cfg.Content, 1, cfg.Iterations)
