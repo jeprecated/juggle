@@ -967,9 +967,9 @@ func BuildPrompt(content string, iteration, maxIterations int) string {
 }
 
 // BuildWatchPrompt wraps task file contents with content and footer.
-func BuildWatchPrompt(taskContents, content, filename string, iteration, maxIterations int) string {
-	return fmt.Sprintf("<task>\n%s\n</task>\n\n%s\n\n---\nThis is iteration %d of %s, processing %s.\n",
-		taskContents, content, iteration, maxStr(maxIterations), filename)
+func BuildWatchPrompt(taskContents, content, taskRelPath string, iteration, maxIterations int) string {
+	return fmt.Sprintf("<task>\nfile: %s\n%s\n</task>\n\n%s\n\n---\nThis is iteration %d of %s, processing %s.\n",
+		taskRelPath, taskContents, content, iteration, maxStr(maxIterations), taskRelPath)
 }
 
 // formatWaitDuration formats a duration as "Xh Ym Zs" for human-readable log messages.

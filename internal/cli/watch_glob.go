@@ -186,7 +186,7 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
@@ -315,7 +315,7 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
 			coord.release(taskPath)
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
@@ -441,7 +441,7 @@ func runMultiWatchSerial(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
 			coord.release(taskPath)
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})

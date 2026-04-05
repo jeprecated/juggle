@@ -187,7 +187,7 @@ func TestRunWatchTask_CmdBeforeSkipsOnFailure(t *testing.T) {
 		Runner:     mock,
 		Stderr:     &stderr,
 	}
-	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	err := runWatchTask(cfg, taskPath, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -213,7 +213,7 @@ func TestRunWatchTask_CmdAfterFailureLogsWarning(t *testing.T) {
 		Runner:     mock,
 		Stderr:     &stderr,
 	}
-	err := runWatchTask(cfg, taskPath, "task.md", nil)
+	err := runWatchTask(cfg, taskPath, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -341,7 +341,7 @@ func TestRunWatchTask_CmdBefore_PrintsMarker(t *testing.T) {
 		Runner:     mock,
 		Stderr:     &stderr,
 	}
-	if err := runWatchTask(cfg, taskPath, "task.md", nil); err != nil {
+	if err := runWatchTask(cfg, taskPath, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(stderr.String(), "cmd-before") {
@@ -368,7 +368,7 @@ func TestRunWatchTask_CmdAfter_PrintsMarker(t *testing.T) {
 		Runner:     mock,
 		Stderr:     &stderr,
 	}
-	if err := runWatchTask(cfg, taskPath, "task.md", nil); err != nil {
+	if err := runWatchTask(cfg, taskPath, nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(stderr.String(), "cmd-after") {

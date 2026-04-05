@@ -134,15 +134,15 @@ func TestPromptFormat(t *testing.T) {
 }
 
 func TestWatchPromptFormat(t *testing.T) {
-	prompt := cli.BuildWatchPrompt("task data", "context", "task.md", 2, 5)
-	if !strings.HasPrefix(prompt, "<task>\ntask data\n</task>") {
-		t.Error("should start with task section")
+	prompt := cli.BuildWatchPrompt("task data", "context", "tasks/task.md", 2, 5)
+	if !strings.HasPrefix(prompt, "<task>\nfile: tasks/task.md\ntask data\n</task>") {
+		t.Error("should start with task section including file path")
 	}
 	if !strings.Contains(prompt, "context") {
 		t.Error("missing context")
 	}
-	if !strings.Contains(prompt, "processing task.md") {
-		t.Error("missing filename")
+	if !strings.Contains(prompt, "processing tasks/task.md") {
+		t.Error("missing relative path in footer")
 	}
 }
 
@@ -175,16 +175,19 @@ func TestWatchTaskProcessing(t *testing.T) {
 		t.Fatalf("expected 001-task.md, got %s", filepath.Base(taskPath))
 	}
 
-	// Verify the watch prompt format includes task contents
-	prompt := cli.BuildWatchPrompt("do the thing", "instructions", "001-task.md", 1, 1)
+	// Verify the watch prompt format includes task contents and file path
+	prompt := cli.BuildWatchPrompt("do the thing", "instructions", "tasks/001-task.md", 1, 1)
+	if !strings.Contains(prompt, "file: tasks/001-task.md") {
+		t.Error("watch prompt missing file path")
+	}
 	if !strings.Contains(prompt, "do the thing") {
 		t.Error("watch prompt missing task contents")
 	}
 	if !strings.Contains(prompt, "instructions") {
 		t.Error("watch prompt missing context")
 	}
-	if !strings.Contains(prompt, "001-task.md") {
-		t.Error("watch prompt missing filename")
+	if !strings.Contains(prompt, "tasks/001-task.md") {
+		t.Error("watch prompt missing relative path")
 	}
 }
 

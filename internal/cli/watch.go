@@ -220,7 +220,7 @@ func RunWatch(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
@@ -244,7 +244,14 @@ func RunWatch(cfg Config) error {
 // runWatchTask runs the iteration loop for a single watch task file.
 // Re-reads the task file each iteration to pick up agent-appended progress.
 // stats is updated with completed iteration metrics (may be nil).
-func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error {
+func runWatchTask(cfg Config, taskFile string, stats *runStats) error {
+	// Compute relative path for use in prompts; fall back to absolute path.
+	taskRelPath := taskFile
+	if wd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(wd, taskFile); err == nil {
+			taskRelPath = rel
+		}
+	}
 	if cfg.RunID == "" {
 		cfg.RunID = generateRunID()
 	}
@@ -283,7 +290,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		default:
 		}
 
-		formatter.IterationHeader(i, max, filename, cfg.Label)
+		formatter.IterationHeader(i, max, taskRelPath, cfg.Label)
 
 		// Run agent-before; skip iteration on failure
 		if cfg.AgentBefore != "" {
@@ -316,21 +323,21 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			if os.IsNotExist(err) {
 				return nil
 			}
-			return fmt.Errorf("reading task file %s: %w", filename, err)
+			return fmt.Errorf("reading task file %s: %w", taskRelPath, err)
 		}
 
-		prompt := BuildWatchPrompt(string(contents), cfg.Content, filename, i, max)
+		prompt := BuildWatchPrompt(string(contents), cfg.Content, taskRelPath, i, max)
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, taskFile, -1)...)
 
 		result, err := cfg.Runner.Run(opts)
 		if err != nil {
-			return fmt.Errorf("runner error on iteration %d of %s: %w", i, filename, err)
+			return fmt.Errorf("runner error on iteration %d of %s: %w", i, taskRelPath, err)
 		}
 
 		// Handle overload exhausted
 		if result.OverloadExhausted {
-			return fmt.Errorf("agent exhausted overload retries on iteration %d of %s", i, filename)
+			return fmt.Errorf("agent exhausted overload retries on iteration %d of %s", i, taskRelPath)
 		}
 
 		// Handle quota/usage exhaustion — sleep until window resets
@@ -656,7 +663,7 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(cfg, taskPath, filename, &stats); err != nil {
+		if err := runWatchTask(cfg, taskPath, &stats); err != nil {
 			coord.release(taskPath)
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})

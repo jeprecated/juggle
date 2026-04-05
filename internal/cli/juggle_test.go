@@ -60,9 +60,9 @@ func TestBuildPrompt(t *testing.T) {
 
 func TestBuildWatchPrompt(t *testing.T) {
 	t.Run("includes task, content, and footer", func(t *testing.T) {
-		got := BuildWatchPrompt("task data", "instructions", "task-001.md", 2, 5)
-		if !strings.Contains(got, "<task>\ntask data\n</task>") {
-			t.Error("missing task section")
+		got := BuildWatchPrompt("task data", "instructions", "tasks/task-001.md", 2, 5)
+		if !strings.Contains(got, "<task>\nfile: tasks/task-001.md\ntask data\n</task>") {
+			t.Error("missing task section with file path")
 		}
 		if !strings.Contains(got, "instructions") {
 			t.Error("missing content")
@@ -70,8 +70,8 @@ func TestBuildWatchPrompt(t *testing.T) {
 		if !strings.Contains(got, "iteration 2 of 5") {
 			t.Error("missing iteration in footer")
 		}
-		if !strings.Contains(got, "processing task-001.md") {
-			t.Error("missing filename in footer")
+		if !strings.Contains(got, "processing tasks/task-001.md") {
+			t.Error("missing relative path in footer")
 		}
 	})
 }
