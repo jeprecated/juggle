@@ -538,6 +538,18 @@ func run(cmd *cobra.Command, args []string) error {
 	cfg.Shutdown = shutdown
 	cfg.ForceCtx = forceCtx
 
+	// Set up keypress listener: pressing 'q' acts like the first Ctrl+C.
+	// Only active when stdin is a TTY; silently skipped otherwise.
+	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
+		color := isColorEnabled(cfg.Stderr)
+		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
+		waitKeypress := StartKeypressListener(tty, trigger, color, cfg.Stderr)
+		defer func() {
+			ttyCleanup()    // restore terminal + close tty (unblocks goroutine Read)
+			waitKeypress()  // wait for goroutine to exit
+		}()
+	}
+
 	return Run(cfg)
 }
 

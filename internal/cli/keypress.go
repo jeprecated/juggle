@@ -1,0 +1,40 @@
+package cli
+
+import (
+	"fmt"
+	"io"
+)
+
+// StartKeypressListener starts a goroutine that reads from r one byte at a time.
+// When 'q' or 'Q' is read, trigger is called and a stop message is written to stderr.
+// If color is true, the message is printed in red.
+// Returns a cleanup function that blocks until the goroutine exits.
+// The goroutine exits when r returns an error (e.g. EOF or file close).
+func StartKeypressListener(r io.Reader, trigger func(), color bool, stderr io.Writer) func() {
+	goroutineDone := make(chan struct{})
+
+	go func() {
+		defer close(goroutineDone)
+		buf := make([]byte, 1)
+		for {
+			n, err := r.Read(buf)
+			if err != nil {
+				return
+			}
+			if n > 0 && (buf[0] == 'q' || buf[0] == 'Q') {
+				msg := "Stopping after this iteration completes"
+				if color {
+					fmt.Fprintf(stderr, "%s%s%s\n", ansiRed, msg, ansiReset)
+				} else {
+					fmt.Fprintln(stderr, msg)
+				}
+				trigger()
+				return
+			}
+		}
+	}()
+
+	return func() {
+		<-goroutineDone
+	}
+}
