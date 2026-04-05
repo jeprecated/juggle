@@ -34,11 +34,14 @@ func NewLoopFormatter(w io.Writer) *LoopFormatter {
 }
 
 // IterationHeader prints a separator line before an iteration starts.
-// For watch mode, pass a non-empty filename.
-func (f *LoopFormatter) IterationHeader(iteration, max int, filename string) {
+// For watch mode, pass a non-empty filename. Pass a non-empty runLabel to show the run label.
+func (f *LoopFormatter) IterationHeader(iteration, max int, filename, runLabel string) {
 	label := fmt.Sprintf("Iteration %d/%s", iteration, maxStr(max))
 	if filename != "" {
 		label += fmt.Sprintf(" [%s]", filename)
+	}
+	if runLabel != "" {
+		label += fmt.Sprintf(" · %s", runLabel)
 	}
 	line := fmt.Sprintf("── %s ──", label)
 

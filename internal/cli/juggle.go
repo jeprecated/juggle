@@ -582,6 +582,10 @@ func RunLoop(cfg Config) error {
 		return fmt.Errorf("--resume requires --log to be set")
 	}
 
+	if cfg.Label == "" {
+		cfg.Label = autoLabel(cfg.Content)
+	}
+
 	max := cfg.Iterations
 	formatter := NewLoopFormatter(cfg.Stderr)
 	stats := runStats{start: time.Now(), model: cfg.Model}
@@ -628,7 +632,7 @@ func RunLoop(cfg Config) error {
 		default:
 		}
 
-		formatter.IterationHeader(i, max, "")
+		formatter.IterationHeader(i, max, "", cfg.Label)
 
 		// Run agent-before; skip iteration on failure
 		if cfg.AgentBefore != "" {
@@ -787,7 +791,7 @@ func RunLoop(cfg Config) error {
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
 
 		// Record completed iteration to log (enables --resume after crash)
-		writeIterationLog(cfg.Log, i)
+		writeIterationLog(cfg.Log, i, cfg.Label)
 
 		// Run agent-after; log warning on failure but continue
 		if cfg.AgentAfter != "" {
@@ -917,4 +921,14 @@ func maxStr(max int) string {
 		return "unlimited"
 	}
 	return fmt.Sprintf("%d", max)
+}
+
+// autoLabel returns the first ~50 characters of content as a run label.
+func autoLabel(content string) string {
+	content = strings.TrimSpace(content)
+	const maxLen = 50
+	if len(content) <= maxLen {
+		return content
+	}
+	return content[:maxLen]
 }

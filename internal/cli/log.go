@@ -10,12 +10,13 @@ import (
 
 // iterationLogEntry is the per-iteration JSONL record written to the log file.
 type iterationLogEntry struct {
-	Iteration int `json:"iteration"`
+	Iteration int    `json:"iteration"`
+	Label     string `json:"label,omitempty"`
 }
 
 // writeIterationLog appends a JSONL entry for a completed iteration to the log file.
 // Errors are silently ignored (best-effort logging).
-func writeIterationLog(logFile string, iteration int) {
+func writeIterationLog(logFile string, iteration int, label string) {
 	if logFile == "" {
 		return
 	}
@@ -25,7 +26,7 @@ func writeIterationLog(logFile string, iteration int) {
 	}
 	defer f.Close()
 	enc := json.NewEncoder(f)
-	_ = enc.Encode(iterationLogEntry{Iteration: iteration})
+	_ = enc.Encode(iterationLogEntry{Iteration: iteration, Label: label})
 }
 
 // parseLastIteration reads a JSONL log file and returns the highest iteration

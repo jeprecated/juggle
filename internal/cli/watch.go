@@ -227,7 +227,7 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 		default:
 		}
 
-		formatter.IterationHeader(i, max, filename)
+		formatter.IterationHeader(i, max, filename, cfg.Label)
 
 		// Run agent-before; skip iteration on failure
 		if cfg.AgentBefore != "" {

@@ -256,3 +256,69 @@ func TestRunLoop_WritesIterationLogEntries(t *testing.T) {
 		t.Errorf("expected last iteration 3 in log, got %d", last)
 	}
 }
+
+func TestWriteIterationLog_IncludesLabel(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "run.jsonl")
+
+	writeIterationLog(logFile, 1, "refactor auth")
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"label":"refactor auth"`) {
+		t.Errorf("expected label in log entry, got: %s", string(data))
+	}
+}
+
+func TestWriteIterationLog_OmitsLabelWhenEmpty(t *testing.T) {
+	dir := t.TempDir()
+	logFile := filepath.Join(dir, "run.jsonl")
+
+	writeIterationLog(logFile, 1, "")
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "label") {
+		t.Errorf("expected no label field when empty, got: %s", string(data))
+	}
+}
+
+func TestRunLoop_LabelInHeader(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{})
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "do work",
+		Iterations: 1,
+		Label:      "my label",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "my label") {
+		t.Errorf("expected label in header output, got: %s", stderr.String())
+	}
+}
+
+func TestRunLoop_AutoLabelInHeader(t *testing.T) {
+	mock := agent.NewMockRunner(&agent.RunResult{})
+	var stderr bytes.Buffer
+	cfg := Config{
+		Content:    "fix the failing tests and make sure everything passes",
+		Iterations: 1,
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatal(err)
+	}
+	// Auto-label is first ~50 chars of prompt
+	if !strings.Contains(stderr.String(), "fix the failing tests") {
+		t.Errorf("expected auto-label in header, got: %s", stderr.String())
+	}
+}

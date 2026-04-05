@@ -11,7 +11,7 @@ func TestIterationHeader(t *testing.T) {
 	t.Run("bounded iterations", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := NewLoopFormatter(&buf)
-		f.IterationHeader(1, 10, "")
+		f.IterationHeader(1, 10, "", "")
 		got := buf.String()
 		if !strings.Contains(got, "Iteration 1/10") {
 			t.Errorf("got %q, want iteration count", got)
@@ -24,7 +24,7 @@ func TestIterationHeader(t *testing.T) {
 	t.Run("unlimited iterations", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := NewLoopFormatter(&buf)
-		f.IterationHeader(3, 0, "")
+		f.IterationHeader(3, 0, "", "")
 		if !strings.Contains(buf.String(), "Iteration 3/unlimited") {
 			t.Errorf("got %q, want unlimited", buf.String())
 		}
@@ -33,10 +33,30 @@ func TestIterationHeader(t *testing.T) {
 	t.Run("watch mode includes filename", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := NewLoopFormatter(&buf)
-		f.IterationHeader(1, 5, "task.md")
+		f.IterationHeader(1, 5, "task.md", "")
 		got := buf.String()
 		if !strings.Contains(got, "[task.md]") {
 			t.Errorf("got %q, want filename in brackets", got)
+		}
+	})
+
+	t.Run("shows label when set", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.IterationHeader(1, 10, "", "refactor auth")
+		got := buf.String()
+		if !strings.Contains(got, "refactor auth") {
+			t.Errorf("got %q, want label in header", got)
+		}
+	})
+
+	t.Run("label omitted when empty", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.IterationHeader(1, 10, "", "")
+		got := buf.String()
+		if strings.Contains(got, "·") {
+			t.Errorf("got %q, want no label marker when label is empty", got)
 		}
 	})
 
@@ -46,7 +66,7 @@ func TestIterationHeader(t *testing.T) {
 		if f.isTTY {
 			t.Skip("test requires non-TTY writer")
 		}
-		f.IterationHeader(1, 10, "")
+		f.IterationHeader(1, 10, "", "")
 		got := buf.String()
 		// Should not contain ANSI escape sequences
 		if strings.Contains(got, "\033[") {
