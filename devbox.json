@@ -2,7 +2,8 @@
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.15.0/.schema/devbox.schema.json",
   "packages": [
     "go@latest",
-    "gopls@latest"
+    "gopls@latest",
+    "golangci-lint"
   ],
   "shell": {
     "init_hook": [
@@ -24,6 +25,12 @@
       "test-coverage": [
         "go test -v -coverprofile=coverage.out ./internal/integration_test/...",
         "go tool cover -html=coverage.out -o coverage.html"
+      ],
+      "lint": [
+        "golangci-lint run ./..."
+      ],
+      "fmt": [
+        "go fmt ./... && go vet ./..."
       ]
     }
   }

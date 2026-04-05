@@ -532,8 +532,7 @@ func parseRetryAfter(output string) time.Duration {
 			}
 			if len(numStr) > 0 {
 				var num int
-				fmt.Sscanf(numStr, "%d", &num)
-				if num > 0 {
+				if _, err := fmt.Sscanf(numStr, "%d", &num); err == nil && num > 0 {
 					return time.Duration(num) * p.multiplier
 				}
 			}

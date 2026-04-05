@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs golangci-lint on staged Go files.
+# Install: ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+
+set -euo pipefail
+
+# Only lint if Go files changed
+if ! git diff --cached --name-only --diff-filter=ACM | grep -q '\.go$'; then
+  exit 0
+fi
+
+# Use devbox if available, otherwise fall back to direct invocation
+if command -v devbox &>/dev/null; then
+  devbox run lint
+else
+  golangci-lint run ./...
+fi

@@ -419,7 +419,7 @@ func TestHelpExamplesExist(t *testing.T) {
 
 func TestSetVersionUpdatesRootCmd(t *testing.T) {
 	prev := rootCmd.Version
-	defer func() { rootCmd.Version = prev; version = prev }()
+	defer func() { rootCmd.Version = prev }()
 
 	SetVersion("9.9.9")
 	if rootCmd.Version != "9.9.9" {

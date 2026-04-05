@@ -19,11 +19,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var version = "dev"
-
 // SetVersion sets the version string (injected at build time).
 func SetVersion(v string) {
-	version = v
 	rootCmd.Version = v
 }
 

@@ -53,6 +53,10 @@
         }
       }
     },
+    "golangci-lint": {
+      "resolved": "github:NixOS/nixpkgs/8b5c9dd8856f0c0cf46cc91f2c21c106a9d42e25?narHash=sha256-gljzEVuaj841XmluE1ng62RHMN5NkMHqdw%2B4OtQcpi4%3D#golangci-lint",
+      "source": "nixpkg"
+    },
     "gopls@latest": {
       "last_modified": "2025-09-18T16:33:27Z",
       "resolved": "github:NixOS/nixpkgs/f4b140d5b253f5e2a1ff4e5506edbf8267724bde#gopls",

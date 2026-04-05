@@ -60,11 +60,10 @@ func detectShellGlobExpansion(watch []string, positionalArgs []string) error {
 	}
 
 	return fmt.Errorf(
-		"it looks like your shell expanded the --watch glob before juggle received it\n"+
-			"  --watch got: %s\n"+
-			"  positional args include %d more matching directories: %s\n"+
-			"  hint: quote the pattern to prevent shell expansion:\n"+
-			"    juggle --watch '**/%s' ...",
+		"it looks like your shell expanded the --watch glob before juggle received it;"+
+			" --watch got: %s;"+
+			" positional args include %d more matching directories: %s;"+
+			" hint: quote the pattern, e.g. juggle --watch '**/%s'",
 		w, len(dirArgs), strings.Join(dirArgs, ", "), wSuffix,
 	)
 }
