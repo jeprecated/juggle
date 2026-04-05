@@ -24,3 +24,20 @@ Support nested subdirectories inside `$JUGGLE_PROMPTS` so users can organize pro
 - No depth limit — walk the full tree
 - Autocomplete uses fuzzy matching: typing `@fix` then tab shows `@workflows/fix` if that's where it lives (not just prefix matching)
 - Explicit paths (`@workflows/fix`) skip bare-name search entirely
+
+## Completion Summary
+
+Implemented in `internal/cli/resolve.go` and `internal/cli/complete.go` via TDD.
+
+**resolve.go changes:**
+- `isLiteralPath()` helper: distinguishes `@./path` (literal) from `@workflows/fix` (JUGGLE_PROMPTS subpath)
+- `resolveFile()`: explicit paths with `/` now also try `$JUGGLE_PROMPTS/name`; bare names now fall through to `resolveNestedBare()` before alias scan
+- `resolveNestedBare()`: new function — walks subdirs recursively, skips hidden dirs, errors on multiple matches
+- `resolveByAlias()`: refactored from `os.ReadDir` to `filepath.WalkDir` for recursive alias scanning
+
+**complete.go changes:**
+- `addFromPromptsDirRecursive()`: replaces flat `addFromDir` for JUGGLE_PROMPTS — walks full tree, uses relative paths as completion keys
+- `addAliasCompletions()`: refactored to `filepath.WalkDir` for recursive alias completions
+- Matching logic: bare partial matches by base filename; partial with `/` matches by full path prefix
+
+**Tests added:** 10 new tests covering all acceptance criteria.
