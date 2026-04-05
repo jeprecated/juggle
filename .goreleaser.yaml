@@ -51,7 +51,7 @@ release:
   github:
     owner: ohare93
     name: juggle
-  draft: true
+  draft: false
   prerelease: auto
 
 brews:

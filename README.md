@@ -13,6 +13,50 @@ A Ralph Loop runs an AI agent repeatedly, each iteration starting a new session 
 - **Cost-aware.** Built for overnight runs with `--max-cost`, `--max-failures`, and automatic quota backoff.
 - **Composable.** Shell hooks (`--cmd-after`, `--stop-when`), phase agents (`--agent-before`, `--agent-after`), and environment variables let you wire in verification gates without juggle imposing a workflow.
 
+## Quick start
+
+```bash
+# Run 3 iterations on a task
+juggle "fix the failing tests" -n 3
+```
+
+```bash
+# @file reads a file's contents into the prompt
+juggle @task.md -n 5
+```
+
+```bash
+# Mix and match -- all positional args join into one prompt
+juggle @tdd @fix "the login form rejects valid emails" -n 5
+```
+
+```bash
+# Point JUGGLE_PROMPTS at a library of reusable prompts
+export JUGGLE_PROMPTS=~/prompts
+juggle @tdd @fix "broken email validation" -n 5
+```
+
+[prompt-lego](https://github.com/ohare93/prompt-lego) is a starter kit of reusable prompt files that work out of the box.
+
+```bash
+# Add a test gate -- stop when tests pass
+juggle @tdd @fix "broken email validation" --cmd-after "make test" --stop-when "make test" -n 10
+```
+
+```bash
+# Run a code review agent after each iteration
+juggle @fix "broken email validation" --agent-after @code-review -n 5
+```
+
+```bash
+# Watch a directory -- agents pick up tasks as they appear
+juggle --watch tasks/ready/ @tdd -n 0
+```
+
+`--watch` runs a fresh agent session for each file in a directory, and waits for new files to appear. That pairs naturally with a task queue like [frontloop](https://github.com/ohare93/frontloop), which stores tasks as markdown files in `.frontloop/ready/` -- you plan tasks while a background juggle loop works through them. But juggle doesn't care where tasks come from -- a directory of markdown files, a script that dumps issues, or anything else that puts files in a folder.
+
+All positional args are prompt content -- strings and `@file` references join into the final prompt. Point `JUGGLE_PROMPTS` at a directory of reusable prompts and compose them like lego pieces.
+
 ## Install
 
 **macOS (Homebrew):**
@@ -39,25 +83,10 @@ curl -sSL https://raw.githubusercontent.com/ohare93/juggle/main/install.sh | bas
 go install github.com/ohare93/juggle/cmd/juggle@latest
 ```
 
-## Quick start
-
-```bash
-# Run 3 iterations on a task
-juggle "fix the failing tests" -n 3
-
-# With a prompt file, test hook, and stop condition
-juggle @task.md --cmd-after "make test" --stop-when "make test" -n 10
-
-# Watch mode: pick up task files from a directory
-juggle --watch tasks/ready/ @worker-rules.md
-```
-
-All positional args are prompt content. Strings and `@file` references are joined into the final prompt.
-
 ## Features
 
 - **Loop control** -- iterations, delay with jitter, per-iteration timeout, resume after crash
-- **Watch mode** -- process task files from a directory or glob pattern, with parallel workers
+- **Watch mode** -- process task files from a directory or glob pattern, with parallel workers (`juggle --watch tasks/ready/ @worker-rules.md`)
 - **Lifecycle hooks** -- run shell commands before/after each iteration, stop on a condition
 - **Phase agents** -- run separate agent sessions before/after the main loop or each iteration
 - **Config file** -- `juggle.toml` for project-level defaults
