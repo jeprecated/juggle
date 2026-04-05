@@ -11,3 +11,7 @@ Remove the shell completion instructions block from the top of `juggle --help` o
 
 - Shell completion block no longer appears in `juggle --help`
 - `juggle completion --help` still shows completion instructions
+
+## Completion Summary
+
+Removed the shell completion block from `rootCmd.Long` in `internal/cli/juggle.go`. Also deleted the now-obsolete `TestHelpLongContainsCompletion` test in `juggle_test.go`. The `juggle completion` subcommand and its help remain intact.
