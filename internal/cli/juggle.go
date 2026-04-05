@@ -217,6 +217,7 @@ var flags struct {
 	systemPrompt    string
 	workers         int
 	workdir         string
+	noConfig        bool
 }
 
 func init() {
@@ -258,6 +259,7 @@ func init() {
 	f.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
 	f.IntVar(&flags.workers, "workers", 1, "number of concurrent watch workers (requires --watch)")
 	f.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
+	f.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -348,6 +350,20 @@ func splitPassthroughArgs(args []string, dashLen int) ([]string, []string) {
 // run is the cobra RunE handler.
 func run(cmd *cobra.Command, args []string) error {
 	normalArgs, passthroughArgs := splitPassthroughArgs(args, cmd.Flags().ArgsLenAtDash())
+
+	// Load and apply config file defaults before using any flag values.
+	fileCfg, _, cfgErr := LoadConfig(flags.noConfig, ".", os.Stderr)
+	if cfgErr != nil {
+		return cfgErr
+	}
+	if fileCfg != nil {
+		// Apply verbose first: config may set verbose=true, which affects the output below.
+		if fileCfg.Verbose != nil && !cmd.Flags().Changed("verbose") {
+			flags.verbose = *fileCfg.Verbose
+		}
+		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr)
+	}
+
 	resolved, err := ResolveArgs(normalArgs)
 	if err != nil {
 		return err
