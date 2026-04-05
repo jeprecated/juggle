@@ -21,3 +21,13 @@ Document the prompt library features (aliases, recursive folders, resolution rul
 
 - Goes in README after Usage section, before Watch mode section
 - Inline in README, not a separate doc file
+
+## Completion Summary
+
+- Added `## Prompt library` section to README between Quick start and Install sections
+- Covers `$JUGGLE_PROMPTS` env var, resolution order (literal → exact → .md → alias scan), frontmatter alias format, folder organization tree, and autocomplete
+- Note: "recursive search" from acceptance criteria is not implemented in code — documented the actual alias scan step instead
+
+### Files Changed
+
+- README.md (modified)

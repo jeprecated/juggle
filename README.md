@@ -76,6 +76,50 @@ juggle --watch tasks/ready/ @tdd -n 0
 
 All positional args are prompt content -- strings and `@file` references join into the final prompt. Point `JUGGLE_PROMPTS` at a directory of reusable prompts and compose them like lego pieces.
 
+## Prompt library
+
+Set `JUGGLE_PROMPTS` to a directory of reusable prompt files. Reference any file with `@name` — no path needed:
+
+```bash
+export JUGGLE_PROMPTS=~/prompts
+juggle @tdd @fix "broken email validation" -n 5
+```
+
+**Resolution order** for a bare `@name` (no `/`):
+
+1. Literal path — `name` read as-is from disk
+2. `$JUGGLE_PROMPTS/name`
+3. `$JUGGLE_PROMPTS/name.md` (only when `name` has no extension)
+4. Alias scan — all files in `$JUGGLE_PROMPTS` checked for a matching `aliases` frontmatter entry
+5. Error
+
+Names containing `/` (like `@./local/task.md`) skip steps 2–4 and are treated as literal paths only. Frontmatter is stripped from every file resolved via `$JUGGLE_PROMPTS`.
+
+**Aliases** let a single file answer to multiple names. Add YAML frontmatter:
+
+```markdown
+---
+aliases: [fix, fixer, bugfix]
+---
+
+You are a careful bug-fixing agent...
+```
+
+`@fix`, `@fixer`, and `@bugfix` all resolve to that file. Base name (filename without extension) always wins over an alias — `fix.md` is found at step 2 before aliases are checked. Two files declaring the same alias is an error.
+
+**Organizing prompts** — bare-name resolution only searches the top level of `$JUGGLE_PROMPTS`. Subdirectories are for grouping; files in them must be referenced by full path.
+
+```
+~/prompts/
+├── tdd.md           # @tdd
+├── fix.md           # @fix
+├── review.md        # @review
+└── roles/
+    └── senior.md    # @/home/you/prompts/roles/senior.md
+```
+
+**Autocomplete** — `juggle completion bash|zsh|fish|nushell|powershell` generates a shell completion script. When enabled, pressing tab after `@` suggests prompt names and aliases from `$JUGGLE_PROMPTS`. Run `juggle completion --help` for setup instructions.
+
 ## Install
 
 **macOS (Homebrew):**
