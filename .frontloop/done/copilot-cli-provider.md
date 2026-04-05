@@ -35,3 +35,20 @@ Add GitHub Copilot CLI (`copilot`) as a new provider, following the same pattern
 - Rate limit errors show "rate limit exceeded" — detect and set RateLimited/RetryAfter
 - Stdin piping is limited; use `-p` flag for prompt delivery
 - Working directory is inherited from cwd automatically
+
+## Completion Summary
+
+- Added `TypeCopilot Type = "copilot"` constant and updated `IsValid()` in provider.go
+- Created `copilot.go` implementing the full `Provider` interface with headless and interactive modes
+- Headless args: `--autopilot`, permission flag, `-s`, `--model=MODEL`, `--max-autopilot-continues N`, `--allow-tool`/`--deny-tool` per tool, then `-p PROMPT`
+- Rate limit detection covers "rate limit", "429", "too many requests", "throttl", and shared quota patterns
+- Updated `detect.go`: `BinaryName`, `Get`, and `ValidProviders` all include copilot
+- Added unit tests covering all flag-building logic, MapModel, MapPermission, rate limit parsing, and detect/factory functions
+
+### Files Changed
+
+- internal/agent/provider/provider.go (modified — TypeCopilot constant + IsValid)
+- internal/agent/provider/detect.go (modified — BinaryName, Get, ValidProviders)
+- internal/agent/provider/copilot.go (new)
+- internal/agent/provider/copilot_test.go (new)
+- internal/agent/provider/provider_test.go (modified — ValidProviders count 5→6)

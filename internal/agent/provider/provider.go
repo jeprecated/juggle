@@ -21,6 +21,8 @@ const (
 	TypeCustom Type = "custom"
 	// TypeGemini is the Google Gemini CLI provider
 	TypeGemini Type = "gemini"
+	// TypeCopilot is the GitHub Copilot CLI provider
+	TypeCopilot Type = "copilot"
 )
 
 // String returns the string representation
@@ -30,7 +32,7 @@ func (p Type) String() string {
 
 // IsValid returns true if the provider type is known
 func (p Type) IsValid() bool {
-	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex || p == TypeCustom || p == TypeGemini
+	return p == TypeClaude || p == TypeOpenCode || p == TypeCodex || p == TypeCustom || p == TypeGemini || p == TypeCopilot
 }
 
 // RunMode defines how the agent should be executed

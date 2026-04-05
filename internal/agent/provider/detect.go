@@ -61,6 +61,8 @@ func BinaryName(p Type) string {
 		return "codex"
 	case TypeGemini:
 		return "gemini"
+	case TypeCopilot:
+		return "copilot"
 	default:
 		return ""
 	}
@@ -76,6 +78,8 @@ func Get(providerType Type) Provider {
 		return NewCodexProvider()
 	case TypeGemini:
 		return NewGeminiProvider()
+	case TypeCopilot:
+		return NewCopilotProvider()
 	case TypeCustom:
 		return NewCustomProvider("")
 	case TypeClaude:
@@ -121,5 +125,6 @@ func ValidProviders() []string {
 		string(TypeCodex),
 		string(TypeCustom),
 		string(TypeGemini),
+		string(TypeCopilot),
 	}
 }
