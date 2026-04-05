@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,57 @@ import (
 // isGlobPattern reports whether s contains any glob metacharacter (* ? [).
 func isGlobPattern(s string) bool {
 	return strings.ContainsAny(s, "*?[")
+}
+
+// detectShellGlobExpansion returns an error if it looks like the shell expanded
+// a glob pattern before juggle received it. This happens when users forget to
+// quote the --watch value (e.g. --watch **/.frontloop/ready instead of
+// --watch '**/.frontloop/ready'). The shell expands the ** into literal paths,
+// --watch gets the first one, and the rest become positional args.
+func detectShellGlobExpansion(watch []string, positionalArgs []string) error {
+	if len(watch) != 1 || len(positionalArgs) == 0 {
+		return nil
+	}
+	w := watch[0]
+	if isGlobPattern(w) {
+		return nil // watch value still has glob chars, no expansion happened
+	}
+
+	// Check if the watch path is a directory
+	wInfo, err := os.Stat(w)
+	if err != nil || !wInfo.IsDir() {
+		return nil
+	}
+
+	// Count how many positional args are directories with the same basename
+	// pattern as the watch dir (strong signal of shell expansion).
+	wSuffix := filepath.Base(w)
+	var dirArgs []string
+	for _, arg := range positionalArgs {
+		if strings.HasPrefix(arg, "@") {
+			continue // file reference, not a shell-expanded path
+		}
+		info, statErr := os.Stat(arg)
+		if statErr != nil || !info.IsDir() {
+			continue
+		}
+		if filepath.Base(arg) == wSuffix {
+			dirArgs = append(dirArgs, arg)
+		}
+	}
+
+	if len(dirArgs) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"it looks like your shell expanded the --watch glob before juggle received it\n"+
+			"  --watch got: %s\n"+
+			"  positional args include %d more matching directories: %s\n"+
+			"  hint: quote the pattern to prevent shell expansion:\n"+
+			"    juggle --watch '**/%s' ...",
+		w, len(dirArgs), strings.Join(dirArgs, ", "), wSuffix,
+	)
 }
 
 // FindVCSRoot walks up from dir looking for a .git or .jj marker directory.
@@ -36,9 +88,55 @@ func FindVCSRoot(dir string) string {
 	}
 }
 
+// skipDirs are directory basenames that expandGlobDirs skips during tree walks.
+// These are typically large, non-project directories that slow down traversal.
+var skipDirs = map[string]bool{
+	".git":         true,
+	".jj":          true,
+	"node_modules": true,
+	"target":       true,
+	"vendor":       true,
+	"__pycache__":  true,
+	".venv":        true,
+	".cache":       true,
+	".direnv":      true,
+}
+
+// extractGlobSuffix checks whether pattern is of the form [./]**/<literal-path>
+// and returns the literal suffix. If the pattern has additional glob metacharacters
+// in the suffix, it returns "" (not optimizable).
+func extractGlobSuffix(pattern string) string {
+	// Strip optional ./ prefix
+	p := pattern
+	p = strings.TrimPrefix(p, "./")
+
+	// Must start with **/ or be just **
+	if !strings.HasPrefix(p, "**/") {
+		return ""
+	}
+	suffix := p[3:] // everything after "**/
+
+	// Suffix must be a literal path (no glob chars, no path traversal)
+	if strings.ContainsAny(suffix, "*?[") {
+		return ""
+	}
+	if strings.Contains(suffix, "..") {
+		return ""
+	}
+	// Strip trailing slash if present
+	suffix = strings.TrimSuffix(suffix, "/")
+	if suffix == "" {
+		return ""
+	}
+	return suffix
+}
+
 // expandGlobDirs expands pattern relative to basedir and returns only directories matching the pattern.
 // If basedir is empty, the current working directory is used.
-// Supports ** via the doublestar library.
+//
+// For patterns of the form **/<literal-path> (the common case), it uses a fast
+// filepath.WalkDir that skips heavy directories and stat-checks the suffix at each
+// directory entry. For complex patterns it falls back to the doublestar library.
 func expandGlobDirs(basedir, pattern string) ([]string, error) {
 	if basedir == "" {
 		var err error
@@ -48,6 +146,12 @@ func expandGlobDirs(basedir, pattern string) ([]string, error) {
 		}
 	}
 
+	// Fast path: **/<literal-suffix>
+	if suffix := extractGlobSuffix(pattern); suffix != "" {
+		return expandGlobFast(basedir, suffix)
+	}
+
+	// Slow fallback: full doublestar walk
 	fsys := os.DirFS(basedir)
 	matches, err := doublestar.Glob(fsys, pattern)
 	if err != nil {
@@ -61,6 +165,54 @@ func expandGlobDirs(basedir, pattern string) ([]string, error) {
 		if err == nil && info.IsDir() {
 			dirs = append(dirs, abs)
 		}
+	}
+	return dirs, nil
+}
+
+// expandGlobFast walks basedir, skipping heavy directories, and collects
+// directories where <dir>/<suffix> exists and is itself a directory.
+func expandGlobFast(basedir, suffix string) ([]string, error) {
+	// Split suffix into its first component so we can detect and avoid
+	// descending into the suffix tree itself (e.g. don't walk inside
+	// .frontloop/ready looking for more .frontloop/ready).
+	suffixFirst := strings.SplitN(suffix, "/", 2)[0]
+
+	var dirs []string
+	err := filepath.WalkDir(basedir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fs.SkipDir
+		}
+		if !d.IsDir() {
+			return nil
+		}
+
+		name := d.Name()
+
+		// Don't descend into the suffix's first component (e.g. ".frontloop"
+		// for suffix ".frontloop/ready"). The parent directory already ran
+		// the stat check before WalkDir descended, so any match is captured.
+		// This check must come before skipDirs so we don't accidentally skip
+		// a suffix component that happens to share a name with a skipDir entry.
+		if name == suffixFirst && path != basedir {
+			return fs.SkipDir
+		}
+
+		// Skip known heavy directories
+		if skipDirs[name] {
+			return fs.SkipDir
+		}
+
+		// Check if <path>/<suffix> exists as a directory
+		candidate := filepath.Join(path, suffix)
+		info, statErr := os.Stat(candidate)
+		if statErr == nil && info.IsDir() {
+			dirs = append(dirs, candidate)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk %q: %w", basedir, err)
 	}
 	return dirs, nil
 }

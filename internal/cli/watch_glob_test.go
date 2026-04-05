@@ -106,6 +106,36 @@ func TestFindVCSRoot(t *testing.T) {
 	})
 }
 
+// --- extractGlobSuffix ---
+
+func TestExtractGlobSuffix(t *testing.T) {
+	tests := []struct {
+		pattern string
+		want    string
+	}{
+		{"**/.frontloop/ready", ".frontloop/ready"},
+		{"./**/.frontloop/ready", ".frontloop/ready"},
+		{"**/tasks", "tasks"},
+		{"./**/tasks", "tasks"},
+		{"**/.frontloop/ready/", ".frontloop/ready"}, // trailing slash stripped
+		// Not optimizable patterns:
+		{"**/repo*/.frontloop", ""},  // glob chars in suffix
+		{"src/**/.frontloop", ""},    // prefix before **
+		{"*.md", ""},                 // no **/ prefix
+		{"**", ""},                   // no suffix
+		{"./**", ""},                 // no suffix
+		{"tasks", ""},               // no ** at all
+		{"**/[ab]/ready", ""},       // glob chars in suffix
+		{"**/../etc/passwd", ""},    // path traversal
+	}
+	for _, tt := range tests {
+		got := extractGlobSuffix(tt.pattern)
+		if got != tt.want {
+			t.Errorf("extractGlobSuffix(%q) = %q, want %q", tt.pattern, got, tt.want)
+		}
+	}
+}
+
 // --- expandGlobDirs ---
 
 func TestExpandGlobDirs(t *testing.T) {
@@ -156,6 +186,178 @@ func TestExpandGlobDirs(t *testing.T) {
 		}
 		if len(dirs) != 1 {
 			t.Fatalf("expected 1 dir, got %d: %v", len(dirs), dirs)
+		}
+	})
+}
+
+// --- expandGlobDirs fast path ---
+
+func TestExpandGlobDirs_FastPath(t *testing.T) {
+	t.Run("finds nested dirs via fast walk", func(t *testing.T) {
+		base := t.TempDir()
+		for _, name := range []string{"repo-a", "repo-b"} {
+			os.MkdirAll(filepath.Join(base, name, ".frontloop", "ready"), 0755)
+		}
+		os.MkdirAll(filepath.Join(base, "repo-c", "other"), 0755)
+
+		dirs, err := expandGlobDirs(base, "**/.frontloop/ready")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 2 {
+			t.Fatalf("expected 2 dirs, got %d: %v", len(dirs), dirs)
+		}
+		for _, d := range dirs {
+			if !strings.HasSuffix(d, ".frontloop/ready") {
+				t.Errorf("unexpected dir %q", d)
+			}
+		}
+	})
+
+	t.Run("skips heavy directories", func(t *testing.T) {
+		base := t.TempDir()
+		// Put a match inside node_modules — should be skipped
+		os.MkdirAll(filepath.Join(base, "node_modules", "pkg", ".frontloop", "ready"), 0755)
+		// Put a real match outside
+		os.MkdirAll(filepath.Join(base, "my-repo", ".frontloop", "ready"), 0755)
+
+		dirs, err := expandGlobDirs(base, "**/.frontloop/ready")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 1 {
+			t.Fatalf("expected 1 dir (node_modules skipped), got %d: %v", len(dirs), dirs)
+		}
+	})
+
+	t.Run("handles ./ prefix pattern", func(t *testing.T) {
+		base := t.TempDir()
+		os.MkdirAll(filepath.Join(base, "repo", ".frontloop", "ready"), 0755)
+
+		dirs, err := expandGlobDirs(base, "./**/.frontloop/ready")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 1 {
+			t.Fatalf("expected 1 dir, got %d: %v", len(dirs), dirs)
+		}
+	})
+
+	t.Run("falls back to doublestar for non-doublestar patterns", func(t *testing.T) {
+		base := t.TempDir()
+		os.MkdirAll(filepath.Join(base, "repo", ".frontloop", "ready"), 0755)
+
+		// Literal path without ** prefix — not optimizable, uses doublestar fallback
+		dirs, err := expandGlobDirs(base, "repo/.frontloop/ready")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 1 {
+			t.Fatalf("expected 1 dir via fallback, got %d: %v", len(dirs), dirs)
+		}
+	})
+
+	t.Run("falls back to doublestar for glob-in-suffix patterns", func(t *testing.T) {
+		base := t.TempDir()
+		os.MkdirAll(filepath.Join(base, "repo-a", ".frontloop", "ready"), 0755)
+		os.MkdirAll(filepath.Join(base, "repo-b", ".frontloop", "ready"), 0755)
+
+		dirs, err := expandGlobDirs(base, "**/repo*/.frontloop/ready")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 2 {
+			t.Fatalf("expected 2 dirs via doublestar fallback, got %d: %v", len(dirs), dirs)
+		}
+	})
+
+	t.Run("suffixFirst in skipDirs still finds matches", func(t *testing.T) {
+		base := t.TempDir()
+		// .cache is in skipDirs, but if the suffix starts with .cache
+		// the fast path should still find matches
+		os.MkdirAll(filepath.Join(base, "repo", ".cache", "data"), 0755)
+
+		dirs, err := expandGlobDirs(base, "**/.cache/data")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 1 {
+			t.Fatalf("expected 1 dir (suffixFirst overrides skipDirs), got %d: %v", len(dirs), dirs)
+		}
+	})
+
+	t.Run("deeply nested dirs found", func(t *testing.T) {
+		base := t.TempDir()
+		os.MkdirAll(filepath.Join(base, "a", "b", "c", ".frontloop", "ready"), 0755)
+
+		dirs, err := expandGlobDirs(base, "**/.frontloop/ready")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dirs) != 1 {
+			t.Fatalf("expected 1 dir, got %d: %v", len(dirs), dirs)
+		}
+	})
+}
+
+// --- detectShellGlobExpansion ---
+
+func TestDetectShellGlobExpansion(t *testing.T) {
+	t.Run("detects expansion when positional args are dirs with same suffix", func(t *testing.T) {
+		dir1 := t.TempDir()
+		dir2 := t.TempDir()
+		// Create matching subdirs
+		ready1 := filepath.Join(dir1, ".frontloop", "ready")
+		ready2 := filepath.Join(dir2, ".frontloop", "ready")
+		os.MkdirAll(ready1, 0755)
+		os.MkdirAll(ready2, 0755)
+
+		err := detectShellGlobExpansion([]string{ready1}, []string{ready2})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "shell expanded") {
+			t.Errorf("expected shell expansion warning, got: %v", err)
+		}
+	})
+
+	t.Run("no error when watch is a glob pattern", func(t *testing.T) {
+		err := detectShellGlobExpansion([]string{"**/.frontloop/ready"}, []string{"/some/dir/ready"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("no error when positional args are not directories", func(t *testing.T) {
+		dir := t.TempDir()
+		ready := filepath.Join(dir, ".frontloop", "ready")
+		os.MkdirAll(ready, 0755)
+
+		err := detectShellGlobExpansion([]string{ready}, []string{"some prompt text"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("no error when no watch flag", func(t *testing.T) {
+		err := detectShellGlobExpansion(nil, []string{"/some/path"})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("no error when positional args have different suffix", func(t *testing.T) {
+		dir1 := t.TempDir()
+		dir2 := t.TempDir()
+		// Different basenames
+		ready1 := filepath.Join(dir1, "ready")
+		other2 := filepath.Join(dir2, "other")
+		os.MkdirAll(ready1, 0755)
+		os.MkdirAll(other2, 0755)
+
+		err := detectShellGlobExpansion([]string{ready1}, []string{other2})
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
 		}
 	})
 }

@@ -393,6 +393,13 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Detect shell glob expansion: if --watch is a non-glob path and positional
+	// args contain existing directories with the same suffix, the shell likely
+	// expanded an unquoted glob before juggle saw it.
+	if err := detectShellGlobExpansion(flags.watch, normalArgs); err != nil {
+		return err
+	}
+
 	// Read piped stdin when not in interactive mode and stdin is not a TTY.
 	if !flags.interactive {
 		if info, statErr := os.Stdin.Stat(); statErr == nil {
