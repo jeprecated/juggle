@@ -87,6 +87,49 @@ func TestScanWatchDir(t *testing.T) {
 	})
 }
 
+func TestRunWatchTask_OnIterDoneCalledPerIteration(t *testing.T) {
+	dir := t.TempDir()
+	taskPath := filepath.Join(dir, "task.md")
+	os.WriteFile(taskPath, []byte("do work"), 0644)
+
+	mock := agent.NewMockRunner(
+		&agent.RunResult{Output: "ok1"},
+		&agent.RunResult{Output: "ok2"},
+		&agent.RunResult{Output: "ok3"},
+	)
+
+	var mu sync.Mutex
+	var calls [][2]int // (iter, maxIter)
+	cfg := Config{
+		Content:    "context",
+		Iterations: 3,
+		Model:      "sonnet",
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+		OnIterDone: func(iter, maxIter int) {
+			mu.Lock()
+			calls = append(calls, [2]int{iter, maxIter})
+			mu.Unlock()
+		},
+	}
+
+	if err := runWatchTask(cfg, taskPath, "task.md", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 OnIterDone calls, got %d", len(calls))
+	}
+	for i, c := range calls {
+		if c[0] != i+1 {
+			t.Errorf("call %d: expected iter %d, got %d", i, i+1, c[0])
+		}
+		if c[1] != 3 {
+			t.Errorf("call %d: expected maxIter 3, got %d", i, c[1])
+		}
+	}
+}
+
 func TestRunWatchTask_Iterations(t *testing.T) {
 	dir := t.TempDir()
 	taskPath := filepath.Join(dir, "task.md")

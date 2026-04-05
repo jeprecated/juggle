@@ -151,6 +151,16 @@ func RunWatch(cfg Config) error {
 		pollDelay = 30 * time.Second
 	}
 
+	var dash *workerDashboard
+	if cfg.Dashboard {
+		dash = setupWorkerDashboard(cfg.Watch, 1, cfg.Stderr)
+		defer dash.stop()
+		if logFile, closeLog := dash.openWorkerLog(0); logFile != nil {
+			cfg.Stderr = logFile
+			defer closeLog()
+		}
+	}
+
 	stats := runStats{start: time.Now(), model: cfg.Model}
 
 	for {
@@ -168,6 +178,9 @@ func RunWatch(cfg Config) error {
 		}
 
 		if taskPath == "" {
+			if dash != nil {
+				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			}
 			fmt.Fprintf(cfg.Stderr, "Watch directory empty, polling in %v...\n", pollDelay)
 			// Interruptible poll sleep
 			select {
@@ -179,9 +192,32 @@ func RunWatch(cfg Config) error {
 		}
 
 		filename := filepath.Base(taskPath)
+		taskCfg := cfg
+		if dash != nil {
+			logFile := dash.logFiles[0]
+			dash.dash.Update(0, WorkerState{
+				Status:    WorkerActive,
+				TaskName:  filename,
+				Iteration: 0,
+				MaxIter:   cfg.Iterations,
+				LogFile:   logFile,
+			})
+			taskCfg.OnIterDone = func(iter, maxIter int) {
+				dash.dash.Update(0, WorkerState{
+					Status:    WorkerActive,
+					TaskName:  filename,
+					Iteration: iter,
+					MaxIter:   maxIter,
+					LogFile:   logFile,
+				})
+			}
+		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(cfg, taskPath, filename, &stats); err != nil {
+		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+			if dash != nil {
+				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			}
 			if errors.Is(err, ErrInterrupted) {
 				writeSummary(cfg, stats)
 				return ErrInterrupted
@@ -192,6 +228,9 @@ func RunWatch(cfg Config) error {
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
+		}
+		if dash != nil {
+			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 		}
 	}
 }
@@ -409,6 +448,9 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 			stats.cacheTokens += result.CacheTokens
 		}
 		formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
+		if cfg.OnIterDone != nil {
+			cfg.OnIterDone(i, max)
+		}
 
 		// Run agent-after; log warning on failure but continue
 		if cfg.AgentAfter != "" {
@@ -492,11 +534,18 @@ func runWatchTask(cfg Config, taskFile, filename string, stats *runStats) error 
 
 // runWatchWorkers spawns cfg.Workers goroutines, each picking task files from
 // the watch directory via a shared coordinator to prevent duplicate selection.
-// Each worker prefixes its stderr output with [worker-N].
+// Each worker prefixes its stderr output with [worker-N], or writes to a log
+// file when the dashboard is active.
 func runWatchWorkers(cfg Config) error {
 	pollDelay := time.Duration(cfg.Delay) * time.Minute
 	if pollDelay < 30*time.Second {
 		pollDelay = 30 * time.Second
+	}
+
+	var dash *workerDashboard
+	if cfg.Dashboard {
+		dash = setupWorkerDashboard(cfg.Watch, cfg.Workers, cfg.Stderr)
+		defer dash.stop()
 	}
 
 	coord := newWorkerCoordinator()
@@ -508,9 +557,17 @@ func runWatchWorkers(cfg Config) error {
 		go func(workerID int) {
 			defer wg.Done()
 			workerCfg := cfg
-			workerCfg.Stderr = newPrefixWriter(cfg.Stderr, fmt.Sprintf("[worker-%d] ", workerID))
+			if dash != nil {
+				logFile, closeLog := dash.openWorkerLog(workerID)
+				defer closeLog()
+				if logFile != nil {
+					workerCfg.Stderr = logFile
+				}
+			} else {
+				workerCfg.Stderr = newPrefixWriter(cfg.Stderr, fmt.Sprintf("[worker-%d] ", workerID))
+			}
 			workerCfg.Runner = &workerIDRunner{inner: cfg.Runner, workerID: workerID}
-			if err := runWorkerLoop(workerCfg, coord, pollDelay); err != nil {
+			if err := runWorkerLoop(workerCfg, coord, pollDelay, dash, workerID); err != nil {
 				errs <- err
 			}
 		}(i)
@@ -526,8 +583,14 @@ func runWatchWorkers(cfg Config) error {
 }
 
 // runWorkerLoop is the per-worker pick→process→repeat loop.
-func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration) error {
+// dash and workerID are used to update the dashboard when non-nil.
+func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration, dash *workerDashboard, workerID int) error {
 	stats := runStats{start: time.Now(), model: cfg.Model}
+
+	logFile := ""
+	if dash != nil && workerID >= 0 && workerID < len(dash.logFiles) {
+		logFile = dash.logFiles[workerID]
+	}
 
 	for {
 		select {
@@ -543,6 +606,9 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 		}
 
 		if taskPath == "" {
+			if dash != nil {
+				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+			}
 			fmt.Fprintf(cfg.Stderr, "No tasks available, polling in %v...\n", pollDelay)
 			select {
 			case <-time.After(pollDelay):
@@ -552,10 +618,33 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 		}
 
 		filename := filepath.Base(taskPath)
+		if dash != nil {
+			dash.dash.Update(workerID, WorkerState{
+				Status:    WorkerActive,
+				TaskName:  filename,
+				Iteration: 0,
+				MaxIter:   cfg.Iterations,
+				LogFile:   logFile,
+			})
+			taskCfg := cfg
+			taskCfg.OnIterDone = func(iter, maxIter int) {
+				dash.dash.Update(workerID, WorkerState{
+					Status:    WorkerActive,
+					TaskName:  filename,
+					Iteration: iter,
+					MaxIter:   maxIter,
+					LogFile:   logFile,
+				})
+			}
+			cfg = taskCfg
+		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
 		if err := runWatchTask(cfg, taskPath, filename, &stats); err != nil {
 			coord.release(taskPath)
+			if dash != nil {
+				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+			}
 			if errors.Is(err, ErrInterrupted) {
 				writeSummary(cfg, stats)
 				return ErrInterrupted
@@ -568,6 +657,9 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 			continue
 		}
 		coord.release(taskPath)
+		if dash != nil {
+			dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+		}
 	}
 }
 

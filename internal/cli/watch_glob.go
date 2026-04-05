@@ -96,6 +96,9 @@ func runGlobWatch(cfg Config) error {
 	if cfg.Workers > 1 {
 		return runGlobWatchWorkers(cfg)
 	}
+	// Auto-enable dashboard for glob watch (output would otherwise be unreadable
+	// as tasks from different dirs interleave with the same stderr prefix).
+	cfg.Dashboard = true
 	return runGlobWatchSerial(cfg)
 }
 
@@ -103,6 +106,16 @@ func runGlobWatchSerial(cfg Config) error {
 	pollDelay := time.Duration(cfg.Delay) * time.Minute
 	if pollDelay < 30*time.Second {
 		pollDelay = 30 * time.Second
+	}
+
+	var dash *workerDashboard
+	if cfg.Dashboard {
+		dash = setupWorkerDashboard(cfg.Watch, 1, cfg.Stderr)
+		defer dash.stop()
+		if logFile, closeLog := dash.openWorkerLog(0); logFile != nil {
+			cfg.Stderr = logFile
+			defer closeLog()
+		}
 	}
 
 	stats := runStats{start: time.Now(), model: cfg.Model}
@@ -133,6 +146,9 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 
 		if taskPath == "" {
+			if dash != nil {
+				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			}
 			fmt.Fprintf(cfg.Stderr, "No tasks found matching %s, polling in %v...\n", cfg.Watch, pollDelay)
 			select {
 			case <-time.After(pollDelay):
@@ -147,9 +163,31 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 
 		filename := filepath.Base(taskPath)
+		if dash != nil {
+			logFile := dash.logFiles[0]
+			dash.dash.Update(0, WorkerState{
+				Status:    WorkerActive,
+				TaskName:  filename,
+				Iteration: 0,
+				MaxIter:   cfg.Iterations,
+				LogFile:   logFile,
+			})
+			taskCfg.OnIterDone = func(iter, maxIter int) {
+				dash.dash.Update(0, WorkerState{
+					Status:    WorkerActive,
+					TaskName:  filename,
+					Iteration: iter,
+					MaxIter:   maxIter,
+					LogFile:   logFile,
+				})
+			}
+		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
 		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
+			if dash != nil {
+				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			}
 			if errors.Is(err, ErrInterrupted) {
 				writeSummary(cfg, stats)
 				return ErrInterrupted
@@ -161,6 +199,9 @@ func runGlobWatchSerial(cfg Config) error {
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
+		if dash != nil {
+			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+		}
 	}
 }
 
@@ -169,6 +210,11 @@ func runGlobWatchWorkers(cfg Config) error {
 	if pollDelay < 30*time.Second {
 		pollDelay = 30 * time.Second
 	}
+
+	// Dashboard is auto-enabled for glob watch workers (multiple workers = interleaved output).
+	cfg.Dashboard = true
+	dash := setupWorkerDashboard(cfg.Watch, cfg.Workers, cfg.Stderr)
+	defer dash.stop()
 
 	coord := newWorkerCoordinator()
 	errs := make(chan error, cfg.Workers)
@@ -184,9 +230,13 @@ func runGlobWatchWorkers(cfg Config) error {
 		go func(workerID int) {
 			defer wg.Done()
 			workerCfg := cfg
-			workerCfg.Stderr = newPrefixWriter(cfg.Stderr, fmt.Sprintf("[worker-%d] ", workerID))
+			logFile, closeLog := dash.openWorkerLog(workerID)
+			defer closeLog()
+			if logFile != nil {
+				workerCfg.Stderr = logFile
+			}
 			workerCfg.Runner = &workerIDRunner{inner: cfg.Runner, workerID: workerID}
-			if err := runGlobWorkerLoop(workerCfg, getDirs, coord, pollDelay); err != nil {
+			if err := runGlobWorkerLoop(workerCfg, getDirs, coord, pollDelay, dash, workerID); err != nil {
 				errs <- err
 			}
 		}(i)
@@ -201,8 +251,13 @@ func runGlobWatchWorkers(cfg Config) error {
 	return nil
 }
 
-func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordinator, pollDelay time.Duration) error {
+func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordinator, pollDelay time.Duration, dash *workerDashboard, workerID int) error {
 	stats := runStats{start: time.Now(), model: cfg.Model}
+
+	logFile := ""
+	if dash != nil && workerID >= 0 && workerID < len(dash.logFiles) {
+		logFile = dash.logFiles[workerID]
+	}
 
 	for {
 		select {
@@ -219,6 +274,9 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 
 		if taskPath == "" {
+			if dash != nil {
+				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+			}
 			fmt.Fprintf(cfg.Stderr, "No tasks available, polling in %v...\n", pollDelay)
 			select {
 			case <-time.After(pollDelay):
@@ -233,10 +291,31 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 
 		filename := filepath.Base(taskPath)
+		if dash != nil {
+			dash.dash.Update(workerID, WorkerState{
+				Status:    WorkerActive,
+				TaskName:  filename,
+				Iteration: 0,
+				MaxIter:   cfg.Iterations,
+				LogFile:   logFile,
+			})
+			taskCfg.OnIterDone = func(iter, maxIter int) {
+				dash.dash.Update(workerID, WorkerState{
+					Status:    WorkerActive,
+					TaskName:  filename,
+					Iteration: iter,
+					MaxIter:   maxIter,
+					LogFile:   logFile,
+				})
+			}
+		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
 		if err := runWatchTask(taskCfg, taskPath, filename, &stats); err != nil {
 			coord.release(taskPath)
+			if dash != nil {
+				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+			}
 			if errors.Is(err, ErrInterrupted) {
 				writeSummary(cfg, stats)
 				return ErrInterrupted
@@ -249,6 +328,9 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 			continue
 		}
 		coord.release(taskPath)
+		if dash != nil {
+			dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+		}
 	}
 }
 

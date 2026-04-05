@@ -104,6 +104,8 @@ type Config struct {
 	Workers           int           // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
 	WorkDir           string        // Working directory for agent spawning (empty = juggle's cwd)
 	Resume            bool          // Resume from last completed iteration recorded in --log file
+	Dashboard         bool          // Show TUI dashboard for watch workers (auto-enabled for glob watch)
+	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -215,6 +217,7 @@ var flags struct {
 	workdir         string
 	noConfig        bool
 	resume          bool
+	dashboard       bool
 }
 
 func init() {
@@ -258,6 +261,7 @@ func init() {
 	f.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
 	f.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 	f.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
+	f.BoolVar(&flags.dashboard, "dashboard", false, "show TUI dashboard for watch workers (default on for glob watch)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = f.MarkHidden("fuzz")
@@ -276,7 +280,7 @@ func init() {
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
 		setFlagGroup(f, name, "Lifecycle Hooks")
 	}
-	for _, name := range []string{"watch", "workers"} {
+	for _, name := range []string{"watch", "workers", "dashboard"} {
 		setFlagGroup(f, name, "Watch Mode")
 	}
 	for _, name := range []string{"dry-run", "verbose", "log", "label"} {
@@ -483,6 +487,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Workers:           flags.workers,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
+		Dashboard:         flags.dashboard,
 	}
 
 	// --agent-cmd auto-sets --provider custom
