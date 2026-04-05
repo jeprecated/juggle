@@ -121,11 +121,18 @@ func (r *workerIDRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
 	return r.inner.Run(opts)
 }
 
-// RunWatch processes task files from a watched directory.
+// RunWatch processes task files from a watched directory or glob pattern.
 // For each file, reads contents, runs iterations, then picks next.
 // Idles when empty, polling at delay interval (minimum 30 seconds).
+// When cfg.Watch is a glob pattern (contains * ? [), RunWatch expands it to find
+// all matching directories (including new ones on each poll cycle) and sets the
+// agent's working directory to the VCS root of the matched task file.
 // When cfg.Workers > 1, spawns that many concurrent worker goroutines.
 func RunWatch(cfg Config) error {
+	if isGlobPattern(cfg.Watch) {
+		return runGlobWatch(cfg)
+	}
+
 	info, err := os.Stat(cfg.Watch)
 	if err != nil {
 		return fmt.Errorf("watch directory: %w", err)
