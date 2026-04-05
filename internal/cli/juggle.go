@@ -293,7 +293,7 @@ func init() {
 }
 
 var completionCmd = &cobra.Command{
-	Use:   "completion [bash|zsh|fish|nushell]",
+	Use:   "completion [bash|zsh|fish|nushell|powershell]",
 	Short: "Generate shell completion script",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -307,8 +307,11 @@ var completionCmd = &cobra.Command{
 		case "nushell":
 			genNushellCompletion(rootCmd, os.Stdout)
 			return nil
+		case "powershell":
+			genPowerShellCompletion(rootCmd, os.Stdout)
+			return nil
 		default:
-			return fmt.Errorf("unsupported shell: %s (use bash, zsh, fish, or nushell)", args[0])
+			return fmt.Errorf("unsupported shell: %s (use bash, zsh, fish, nushell, or powershell)", args[0])
 		}
 	},
 }
