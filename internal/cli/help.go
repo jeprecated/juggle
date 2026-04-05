@@ -33,7 +33,13 @@ func setFlagGroup(f *pflag.FlagSet, name, group string) {
 }
 
 // groupedHelp is a cobra help function that renders flags sorted into named groups.
-func groupedHelp(cmd *cobra.Command, _ []string) {
+// Color is enabled when the command's output writer is a TTY and NO_COLOR is unset.
+func groupedHelp(cmd *cobra.Command, args []string) {
+	groupedHelpWithColor(cmd, args, isColorEnabled(cmd.OutOrStdout()))
+}
+
+// groupedHelpWithColor renders grouped help output; color controls ANSI styling.
+func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 	w := cmd.OutOrStdout()
 
 	if cmd.Long != "" {
@@ -41,10 +47,10 @@ func groupedHelp(cmd *cobra.Command, _ []string) {
 		fmt.Fprintln(w)
 	}
 
-	fmt.Fprintf(w, "Usage:\n  %s\n\n", cmd.UseLine())
+	fmt.Fprintf(w, "%s\n  %s\n\n", colorizeHeading("Usage:", color), cmd.UseLine())
 
 	if cmd.Example != "" {
-		fmt.Fprintf(w, "Examples:\n%s\n\n", cmd.Example)
+		fmt.Fprintf(w, "%s\n%s\n\n", colorizeHeading("Examples:", color), colorizeExamples(cmd.Example, color))
 	}
 
 	// Collect flags into groups
@@ -72,8 +78,8 @@ func groupedHelp(cmd *cobra.Command, _ []string) {
 		if fs == nil {
 			continue
 		}
-		fmt.Fprintf(w, "%s:\n", grp)
-		fmt.Fprint(w, fs.FlagUsages())
+		fmt.Fprintf(w, "%s\n", colorizeHeading(grp+":", color))
+		fmt.Fprint(w, colorizeFlagUsages(fs.FlagUsages(), color))
 		fmt.Fprintln(w)
 	}
 
@@ -81,8 +87,8 @@ func groupedHelp(cmd *cobra.Command, _ []string) {
 	hasOther := false
 	otherSet.VisitAll(func(_ *pflag.Flag) { hasOther = true })
 	if hasOther {
-		fmt.Fprintf(w, "Flags:\n")
-		fmt.Fprint(w, otherSet.FlagUsages())
+		fmt.Fprintf(w, "%s\n", colorizeHeading("Flags:", color))
+		fmt.Fprint(w, colorizeFlagUsages(otherSet.FlagUsages(), color))
 		fmt.Fprintln(w)
 	}
 
@@ -94,7 +100,7 @@ func groupedHelp(cmd *cobra.Command, _ []string) {
 		}
 	}
 	if len(available) > 0 {
-		fmt.Fprintf(w, "Available Commands:\n")
+		fmt.Fprintf(w, "%s\n", colorizeHeading("Available Commands:", color))
 		for _, sub := range available {
 			fmt.Fprintf(w, "  %-11s %s\n", sub.Name(), sub.Short)
 		}

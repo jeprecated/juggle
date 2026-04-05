@@ -31,6 +31,32 @@ func TestHelpFlagGroupHeadings(t *testing.T) {
 	}
 }
 
+func TestGroupedHelpWithColorTrueHasANSIInHeadings(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(os.Stdout)
+	groupedHelpWithColor(rootCmd, nil, true)
+	out := buf.String()
+	if !strings.Contains(out, "\033[") {
+		t.Error("groupedHelpWithColor(color=true) should contain ANSI escape codes in headings")
+	}
+	// Heading text must still be present
+	if !strings.Contains(out, "Loop Control") {
+		t.Error("groupedHelpWithColor(color=true) should still contain group heading text")
+	}
+}
+
+func TestGroupedHelpWithColorFalseHasNoANSI(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(os.Stdout)
+	groupedHelpWithColor(rootCmd, nil, false)
+	out := buf.String()
+	if strings.Contains(out, "\033[") {
+		t.Error("groupedHelpWithColor(color=false) should not contain ANSI escape codes")
+	}
+}
+
 func TestHelpContainsAllVisibleFlags(t *testing.T) {
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)
