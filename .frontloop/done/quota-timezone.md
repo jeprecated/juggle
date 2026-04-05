@@ -17,3 +17,7 @@ priority: low
 - Add a comment noting that API providers typically report UTC
 - If simple to implement: parse timezone with time.LoadLocation() as a best-effort improvement
 - If timezone parsing adds complexity, the comment is sufficient
+
+## Completion Summary
+
+Added a two-line comment before `time.Date(...)` in `parseQuotaResetTime()` documenting the UTC assumption and that API providers consistently report UTC. Timezone parsing was skipped as Go's `time.LoadLocation` doesn't handle abbreviations like "PST" directly, which would add non-trivial complexity for negligible practical benefit.

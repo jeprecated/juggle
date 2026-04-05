@@ -457,6 +457,8 @@ func parseQuotaResetTime(output string) time.Time {
 		}
 		if n >= 2 && h >= 0 && h < 24 && m >= 0 && m < 60 {
 			now := time.Now().UTC()
+			// Assume UTC: any timezone token present in the string is ignored.
+			// API providers (e.g. Anthropic) consistently report quota reset times in UTC.
 			candidate := time.Date(now.Year(), now.Month(), now.Day(), h, m, s, 0, time.UTC)
 			if candidate.Before(now) {
 				// Time already passed today; use tomorrow
