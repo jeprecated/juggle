@@ -417,12 +417,6 @@ func TestHelpExamplesExist(t *testing.T) {
 	}
 }
 
-func TestHelpLongContainsCompletion(t *testing.T) {
-	if !strings.Contains(rootCmd.Long, "completion") {
-		t.Error("Long description should mention shell completion")
-	}
-}
-
 func TestSetVersionUpdatesRootCmd(t *testing.T) {
 	prev := rootCmd.Version
 	defer func() { rootCmd.Version = prev; version = prev }()

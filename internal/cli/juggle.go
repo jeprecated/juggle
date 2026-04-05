@@ -313,12 +313,7 @@ var rootCmd = &cobra.Command{
 	Use:     "juggle [prompt-content...]",
 	Short:   "Minimal agent loop runner",
 	Version: "dev",
-	Long: `Run an AI agent in a loop. All positional args are prompt content (strings or @file references).
-
-Shell completion:
-  juggle completion bash > /etc/bash_completion.d/juggle
-  juggle completion zsh > ~/.zshrc
-  juggle completion fish > ~/.config/fish/completions/juggle.fish`,
+	Long: `Run an AI agent in a loop. All positional args are prompt content (strings or @file references).`,
 	Example: `  # Basic: run 3 iterations
   juggle "fix the failing tests" -n 3
 
