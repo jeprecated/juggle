@@ -25,3 +25,16 @@ Create a FEATURES.md documenting all of juggle's hook and lifecycle mechanisms s
 
 - Read Claude Code docs or session_hooks.go to enumerate all supported event types
 - The EVENT in `--hook EVENT:CMD` maps to Claude Code's hook event system — document which events are available and what triggers them
+
+## Completion Summary
+
+- Created FEATURES.md at the project root documenting all hook categories, lifecycle order, environment variables, and failure behavior
+- Covers shell hooks (--cmd-before, --cmd-after, --stop-when), agent phase hooks (--agent-pre/before/after/post), and session hooks (--hook, --hooks-file)
+- Documents all six Claude Code session hook events (PreToolUse, PostToolUse, SessionStart, Stop, SubagentStop, PreCompact) with descriptions
+- Includes ASCII lifecycle diagram showing exact execution order
+- Includes full JUGGLE_* environment variables table with availability per hook type
+- Includes failure behavior summary table for every hook
+
+### Files Changed
+
+- FEATURES.md (new)
