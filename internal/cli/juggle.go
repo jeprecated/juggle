@@ -175,9 +175,8 @@ func writeSummary(cfg Config, stats runStats) {
 	writeSummaryLog(cfg.Log, stats)
 }
 
-// flags is used for cobra flag binding.
+// flags is used for cobra flag binding for the root command and its persistent flags.
 var flags struct {
-	watch        []string
 	iterations   int
 	model        string
 	provider     string
@@ -212,82 +211,93 @@ var flags struct {
 	retries         int
 	agentCmd        string
 	systemPrompt    string
-	workers         int
 	workdir         string
 	noConfig        bool
 	resume          bool
-	dashboard       bool
+}
+
+// watchFlags holds flags specific to the watch subcommand.
+var watchFlags struct {
+	dirs      []string
+	workers   int
+	dashboard bool
 }
 
 func init() {
-	f := rootCmd.Flags()
-	f.StringArrayVar(&flags.watch, "watch", nil, "watch directory for task files (repeatable)")
-	f.IntVarP(&flags.iterations, "iterations", "n", 10, "max iterations (0 = unlimited)")
-	f.StringVar(&flags.model, "model", "sonnet", "model name")
-	f.StringVar(&flags.provider, "provider", "claude", "provider name")
-	f.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
-	f.IntVar(&flags.fuzz, "fuzz", 0, "+/- random variance in minutes")
-	f.BoolVar(&flags.trust, "trust", false, "bypass permission checks")
-	f.BoolVar(&flags.plan, "plan", false, "read-only plan mode (shortcut for --permission-mode plan)")
-	f.BoolVar(&flags.interactive, "interactive", false, "interactive TUI mode")
-	f.DurationVar(&flags.timeout, "timeout", 0, "per-iteration timeout")
-	f.DurationVar(&flags.maxWait, "max-wait", 0, "max rate limit wait")
-	f.BoolVar(&flags.dryRun, "dry-run", false, "show prompt, don't run")
-	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
-	f.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
-	f.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
-	f.StringVar(&flags.cmdBefore, "cmd-before", "", "shell command to run before each iteration")
-	f.StringVar(&flags.cmdAfter, "cmd-after", "", "shell command to run after each iteration")
-	f.StringVar(&flags.stopWhen, "stop-when", "", "shell command; exit 0 stops the loop gracefully")
-	f.StringSliceVar(&flags.agentPre, "agent-pre", nil, "agent session prompt(s) to run once before the loop (comma-separated)")
-	f.StringSliceVar(&flags.agentBefore, "agent-before", nil, "agent session prompt(s) to run before each iteration (comma-separated)")
-	f.StringSliceVar(&flags.agentAfter, "agent-after", nil, "agent session prompt(s) to run after each iteration (comma-separated)")
-	f.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
-	f.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
-	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
-	f.StringVar(&flags.log, "log", "", "append one JSON line per iteration to this file (JSONL); summary appended on completion")
-	f.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
-	f.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
-	f.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
-	f.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
-	f.IntVar(&flags.maxTurns, "max-turns", 0, "cap tool-use turns per iteration (0 = provider default)")
-	f.StringVar(&flags.mcpConfig, "mcp-config", "", "path to MCP server config file")
-	f.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
-	f.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
-	f.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
-	f.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
-	f.IntVar(&flags.workers, "workers", 1, "number of concurrent watch workers (requires --watch)")
-	f.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
-	f.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
-	f.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
-	f.BoolVar(&flags.dashboard, "dashboard", false, "show TUI dashboard for watch workers (default on for glob watch)")
+	// pf holds shared flags inherited by all subcommands.
+	pf := rootCmd.PersistentFlags()
+	pf.IntVarP(&flags.iterations, "iterations", "n", 10, "max iterations (0 = unlimited)")
+	pf.StringVar(&flags.model, "model", "sonnet", "model name")
+	pf.StringVar(&flags.provider, "provider", "claude", "provider name")
+	pf.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
+	pf.IntVar(&flags.fuzz, "fuzz", 0, "+/- random variance in minutes")
+	pf.BoolVar(&flags.trust, "trust", false, "bypass permission checks")
+	pf.BoolVar(&flags.plan, "plan", false, "read-only plan mode (shortcut for --permission-mode plan)")
+	pf.BoolVar(&flags.interactive, "interactive", false, "interactive TUI mode")
+	pf.DurationVar(&flags.timeout, "timeout", 0, "per-iteration timeout")
+	pf.DurationVar(&flags.maxWait, "max-wait", 0, "max rate limit wait")
+	pf.BoolVar(&flags.dryRun, "dry-run", false, "show prompt, don't run")
+	pf.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
+	pf.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
+	pf.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
+	pf.StringVar(&flags.cmdBefore, "cmd-before", "", "shell command to run before each iteration")
+	pf.StringVar(&flags.cmdAfter, "cmd-after", "", "shell command to run after each iteration")
+	pf.StringVar(&flags.stopWhen, "stop-when", "", "shell command; exit 0 stops the loop gracefully")
+	pf.StringSliceVar(&flags.agentPre, "agent-pre", nil, "agent session prompt(s) to run once before the loop (comma-separated)")
+	pf.StringSliceVar(&flags.agentBefore, "agent-before", nil, "agent session prompt(s) to run before each iteration (comma-separated)")
+	pf.StringSliceVar(&flags.agentAfter, "agent-after", nil, "agent session prompt(s) to run after each iteration (comma-separated)")
+	pf.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
+	pf.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
+	pf.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
+	pf.StringVar(&flags.log, "log", "", "append one JSON line per iteration to this file (JSONL); summary appended on completion")
+	pf.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
+	pf.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
+	pf.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
+	pf.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
+	pf.IntVar(&flags.maxTurns, "max-turns", 0, "cap tool-use turns per iteration (0 = provider default)")
+	pf.StringVar(&flags.mcpConfig, "mcp-config", "", "path to MCP server config file")
+	pf.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
+	pf.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
+	pf.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
+	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
+	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
+	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
+	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
 
 	// Hide less-common flags to reduce noise in default help output
-	_ = f.MarkHidden("fuzz")
-	_ = f.MarkHidden("interactive")
-	_ = f.MarkHidden("show-thinking")
-	_ = f.MarkHidden("provider")
+	_ = pf.MarkHidden("fuzz")
+	_ = pf.MarkHidden("interactive")
+	_ = pf.MarkHidden("show-thinking")
+	_ = pf.MarkHidden("provider")
 
 	// Assign visible flags to help groups. Hidden flags (fuzz, interactive,
 	// show-thinking, provider) are intentionally omitted here.
 	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "resume"} {
-		setFlagGroup(f, name, "Loop Control")
+		setFlagGroup(pf, name, "Loop Control")
 	}
 	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "workdir"} {
-		setFlagGroup(f, name, "Agent Configuration")
+		setFlagGroup(pf, name, "Agent Configuration")
 	}
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
-		setFlagGroup(f, name, "Lifecycle Hooks")
-	}
-	for _, name := range []string{"watch", "workers", "dashboard"} {
-		setFlagGroup(f, name, "Watch Mode")
+		setFlagGroup(pf, name, "Lifecycle Hooks")
 	}
 	for _, name := range []string{"dry-run", "verbose", "log", "label"} {
-		setFlagGroup(f, name, "Output")
+		setFlagGroup(pf, name, "Output")
+	}
+
+	// Watch subcommand flags
+	wf := watchCmd.Flags()
+	wf.StringArrayVar(&watchFlags.dirs, "dir", nil, "additional watch directory (repeatable)")
+	wf.IntVar(&watchFlags.workers, "workers", 1, "number of concurrent watch workers")
+	wf.BoolVar(&watchFlags.dashboard, "dashboard", false, "show TUI dashboard for watch workers (default on for glob watch)")
+	for _, name := range []string{"dir", "workers", "dashboard"} {
+		setFlagGroup(wf, name, "Watch Mode")
 	}
 
 	rootCmd.SetHelpFunc(groupedHelp)
+	watchCmd.SetHelpFunc(groupedHelp)
 	rootCmd.AddCommand(completionCmd)
+	rootCmd.AddCommand(watchCmd)
 }
 
 var completionCmd = &cobra.Command{
@@ -314,6 +324,29 @@ var completionCmd = &cobra.Command{
 	},
 }
 
+var watchCmd = &cobra.Command{
+	Use:   "watch <dir> [prompt-content...]",
+	Short: "Watch a directory for task files and run the agent on each",
+	Long: `Watch a directory for task files. The first positional argument is the watch
+directory; remaining positional arguments are prompt content (@file references supported).
+
+Additional watch directories can be added with --dir (repeatable).`,
+	Example: `  # Watch a directory, run 5 iterations per task
+  juggle watch ./tasks/ @rules.md -n 5
+
+  # Multiple watch directories
+  juggle watch ./tasks/ @rules.md --dir ./more-tasks/
+
+  # Watch with multiple workers and dashboard
+  juggle watch ./tasks/ --workers 4 --dashboard`,
+	Args: cobra.MinimumNArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runWatchSubcmd(cmd, args)
+	},
+	SilenceUsage:  true,
+	SilenceErrors: true,
+}
+
 var rootCmd = &cobra.Command{
 	Use:     "juggle [prompt-content...]",
 	Short:   "Minimal agent loop runner",
@@ -326,7 +359,7 @@ var rootCmd = &cobra.Command{
   juggle @task.md --trust -n 10
 
   # Watch mode: pick up tasks from a directory
-  juggle --watch ./tasks/ @rules.md
+  juggle watch ./tasks/ @rules.md
 
   # With hooks: run tests after each iteration, stop when they pass
   juggle --cmd-after "npm test" --stop-when "npm test" @task.md
@@ -390,13 +423,6 @@ func run(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Detect shell glob expansion: if --watch is a non-glob path and positional
-	// args contain existing directories with the same suffix, the shell likely
-	// expanded an unquoted glob before juggle saw it.
-	if err := detectShellGlobExpansion(flags.watch, normalArgs); err != nil {
-		return err
-	}
-
 	// Read piped stdin when not in interactive mode and stdin is not a TTY.
 	if !flags.interactive {
 		if info, statErr := os.Stdin.Stat(); statErr == nil {
@@ -411,8 +437,8 @@ func run(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Show help when there is no content and no watch mode.
-	if len(flags.watch) == 0 && len(resolved) == 0 {
+	// Show help when there is no content.
+	if len(resolved) == 0 {
 		return cmd.Help()
 	}
 
@@ -455,28 +481,27 @@ func run(cmd *cobra.Command, args []string) error {
 	defer hooksCleanup()
 
 	cfg := Config{
-		Content:      strings.Join(resolved, "\n\n"),
-		Watch:        flags.watch,
-		Iterations:   flags.iterations,
-		Model:        flags.model,
-		Provider:     flags.provider,
-		Delay:        flags.delay,
-		Fuzz:         flags.fuzz,
-		Trust:        flags.trust,
-		Plan:         flags.plan,
-		Interactive:  flags.interactive,
-		Timeout:      flags.timeout,
-		MaxWait:      flags.maxWait,
-		DryRun:       flags.dryRun,
-		ShowThinking: flags.showThinking,
-		Verbose:      flags.verbose,
-		MaxFailures:  flags.maxFailures,
-		CmdBefore:    flags.cmdBefore,
-		CmdAfter:     flags.cmdAfter,
-		StopWhen:     flags.stopWhen,
-		AgentPre:     agentPre,
-		AgentBefore:  agentBefore,
-		AgentAfter:   agentAfter,
+		Content:           strings.Join(resolved, "\n\n"),
+		Iterations:        flags.iterations,
+		Model:             flags.model,
+		Provider:          flags.provider,
+		Delay:             flags.delay,
+		Fuzz:              flags.fuzz,
+		Trust:             flags.trust,
+		Plan:              flags.plan,
+		Interactive:       flags.interactive,
+		Timeout:           flags.timeout,
+		MaxWait:           flags.maxWait,
+		DryRun:            flags.dryRun,
+		ShowThinking:      flags.showThinking,
+		Verbose:           flags.verbose,
+		MaxFailures:       flags.maxFailures,
+		CmdBefore:         flags.cmdBefore,
+		CmdAfter:          flags.cmdAfter,
+		StopWhen:          flags.stopWhen,
+		AgentPre:          agentPre,
+		AgentBefore:       agentBefore,
+		AgentAfter:        agentAfter,
 		AgentPost:         agentPost,
 		Hooks:             flags.hooks,
 		HooksSettingsFile: hooksSettingsFile,
@@ -492,10 +517,8 @@ func run(cmd *cobra.Command, args []string) error {
 		PassthroughArgs:   passthroughArgs,
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
-		Workers:           flags.workers,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
-		Dashboard:         flags.dashboard,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -547,6 +570,186 @@ func run(cmd *cobra.Command, args []string) error {
 		defer func() {
 			ttyCleanup()    // restore terminal + close tty (unblocks goroutine Read)
 			waitKeypress()  // wait for goroutine to exit
+		}()
+	}
+
+	return Run(cfg)
+}
+
+// runWatchSubcmd is the cobra RunE handler for the watch subcommand.
+// args[0] is the watch directory; args[1:] are prompt content.
+func runWatchSubcmd(cmd *cobra.Command, args []string) error {
+	normalArgs, passthroughArgs := splitPassthroughArgs(args, cmd.Flags().ArgsLenAtDash())
+
+	watchDir := normalArgs[0]
+	promptArgs := normalArgs[1:]
+
+	watchDirs := append([]string{watchDir}, watchFlags.dirs...)
+
+	// Load and apply config file defaults before using any flag values.
+	fileCfg, _, cfgErr := LoadConfig(flags.noConfig, ".", os.Stderr)
+	if cfgErr != nil {
+		return cfgErr
+	}
+	if fileCfg != nil {
+		if fileCfg.Verbose != nil && !cmd.Flags().Changed("verbose") {
+			flags.verbose = *fileCfg.Verbose
+		}
+		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr)
+	}
+
+	resolved, err := ResolveArgs(promptArgs)
+	if err != nil {
+		return err
+	}
+
+	// Detect shell glob expansion on the watch directory argument.
+	if err := detectShellGlobExpansion(watchDirs, promptArgs); err != nil {
+		return err
+	}
+
+	// Read piped stdin as additional prompt content when not in interactive mode.
+	if !flags.interactive {
+		if info, statErr := os.Stdin.Stat(); statErr == nil {
+			isTTY := info.Mode()&os.ModeCharDevice != 0
+			stdinContent, readErr := ReadStdin(os.Stdin, isTTY)
+			if readErr != nil {
+				return fmt.Errorf("reading stdin: %w", readErr)
+			}
+			if stdinContent != "" {
+				resolved = append(resolved, stdinContent)
+			}
+		}
+	}
+
+	agentPre, err := BuildPhaseContent(flags.agentPre)
+	if err != nil {
+		return fmt.Errorf("--agent-pre: %w", err)
+	}
+	agentBefore, err := BuildPhaseContent(flags.agentBefore)
+	if err != nil {
+		return fmt.Errorf("--agent-before: %w", err)
+	}
+	agentAfter, err := BuildPhaseContent(flags.agentAfter)
+	if err != nil {
+		return fmt.Errorf("--agent-after: %w", err)
+	}
+	agentPost, err := BuildPhaseContent(flags.agentPost)
+	if err != nil {
+		return fmt.Errorf("--agent-post: %w", err)
+	}
+
+	var systemPrompt string
+	if flags.systemPrompt != "" {
+		resolved1, err1 := ResolveArgs([]string{flags.systemPrompt})
+		if err1 != nil {
+			return fmt.Errorf("--system-prompt: %w", err1)
+		}
+		systemPrompt = resolved1[0]
+	}
+
+	if flags.mcpConfig != "" {
+		if _, err := os.Stat(flags.mcpConfig); err != nil {
+			return fmt.Errorf("--mcp-config: file not found: %s", flags.mcpConfig)
+		}
+	}
+
+	hooksSettingsFile, hooksCleanup, err := buildHooksSettingsFile(flags.hooks, flags.hooksFile)
+	if err != nil {
+		return fmt.Errorf("hooks: %w", err)
+	}
+	defer hooksCleanup()
+
+	cfg := Config{
+		Content:           strings.Join(resolved, "\n\n"),
+		Watch:             watchDirs,
+		Workers:           watchFlags.workers,
+		Dashboard:         watchFlags.dashboard,
+		Iterations:        flags.iterations,
+		Model:             flags.model,
+		Provider:          flags.provider,
+		Delay:             flags.delay,
+		Fuzz:              flags.fuzz,
+		Trust:             flags.trust,
+		Plan:              flags.plan,
+		Interactive:       flags.interactive,
+		Timeout:           flags.timeout,
+		MaxWait:           flags.maxWait,
+		DryRun:            flags.dryRun,
+		ShowThinking:      flags.showThinking,
+		Verbose:           flags.verbose,
+		MaxFailures:       flags.maxFailures,
+		CmdBefore:         flags.cmdBefore,
+		CmdAfter:          flags.cmdAfter,
+		StopWhen:          flags.stopWhen,
+		AgentPre:          agentPre,
+		AgentBefore:       agentBefore,
+		AgentAfter:        agentAfter,
+		AgentPost:         agentPost,
+		Hooks:             flags.hooks,
+		HooksSettingsFile: hooksSettingsFile,
+		Log:               flags.log,
+		MaxCost:           flags.maxCost,
+		Label:             flags.label,
+		AllowedTools:      flags.allowedTools,
+		DisallowedTools:   flags.disallowedTools,
+		MaxTurns:          flags.maxTurns,
+		MCPConfig:         flags.mcpConfig,
+		OnFailure:         OnFailure(flags.onFailure),
+		Retries:           flags.retries,
+		PassthroughArgs:   passthroughArgs,
+		AgentCmd:          flags.agentCmd,
+		SystemPrompt:      systemPrompt,
+		WorkDir:           flags.workdir,
+		Resume:            flags.resume,
+	}
+
+	// --agent-cmd auto-sets --provider custom
+	if cfg.AgentCmd != "" && cfg.Provider == "claude" {
+		cfg.Provider = "custom"
+	}
+
+	// Build runner from provider flag
+	var p provider.Provider
+	if provider.Type(cfg.Provider) == provider.TypeCustom {
+		if cfg.AgentCmd == "" {
+			return fmt.Errorf("--provider custom requires --agent-cmd")
+		}
+		p = provider.GetCustom(cfg.AgentCmd)
+	} else {
+		p = provider.Get(provider.Type(cfg.Provider))
+	}
+	cfg.Runner = &agent.ProviderRunner{Provider: p}
+
+	// Set up signal handling: first signal = graceful shutdown, second = force kill
+	shutdown := make(chan struct{})
+	var shutdownOnce sync.Once
+	forceCtx, forceCancel := context.WithCancel(context.Background())
+	defer forceCancel()
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	go func() {
+		<-sigCh
+		shutdownOnce.Do(func() { close(shutdown) })
+		<-sigCh
+		forceCancel()
+		time.Sleep(200 * time.Millisecond)
+		os.Exit(130)
+	}()
+
+	cfg.Shutdown = shutdown
+	cfg.ForceCtx = forceCtx
+
+	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
+		color := isColorEnabled(cfg.Stderr)
+		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
+		waitKeypress := StartKeypressListener(tty, trigger, color, cfg.Stderr)
+		defer func() {
+			ttyCleanup()
+			waitKeypress()
 		}()
 	}
 

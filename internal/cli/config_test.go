@@ -192,13 +192,13 @@ func TestApplyFileConfig_AllSupportedFields(t *testing.T) {
 	origDelay := flags.delay
 	origTrust := flags.trust
 	origMaxFailures := flags.maxFailures
-	origWorkers := flags.workers
+	origWorkers := watchFlags.workers
 	t.Cleanup(func() {
 		flags.iterations = origIterations
 		flags.delay = origDelay
 		flags.trust = origTrust
 		flags.maxFailures = origMaxFailures
-		flags.workers = origWorkers
+		watchFlags.workers = origWorkers
 	})
 
 	n := 3
@@ -230,8 +230,8 @@ func TestApplyFileConfig_AllSupportedFields(t *testing.T) {
 	if flags.maxFailures != 2 {
 		t.Errorf("max-failures: expected 2, got %d", flags.maxFailures)
 	}
-	if flags.workers != 4 {
-		t.Errorf("workers: expected 4, got %d", flags.workers)
+	if watchFlags.workers != 4 {
+		t.Errorf("workers: expected 4, got %d", watchFlags.workers)
 	}
 }
 
@@ -273,10 +273,10 @@ func TestLoadConfig_WatchAsList(t *testing.T) {
 }
 
 func TestApplyFileConfig_WatchSetsFlags(t *testing.T) {
-	origWatch := flags.watch
-	t.Cleanup(func() { flags.watch = origWatch })
+	origWatch := watchFlags.dirs
+	t.Cleanup(func() { watchFlags.dirs = origWatch })
 
-	flags.watch = nil
+	watchFlags.dirs = nil
 	w := tomlStringOrList([]string{"./tasks1", "./tasks2"})
 	cfg := &FileConfig{Watch: &w}
 
@@ -284,10 +284,10 @@ func TestApplyFileConfig_WatchSetsFlags(t *testing.T) {
 	var stderr bytes.Buffer
 	ApplyFileConfig(cfg, changed, false, &stderr)
 
-	if len(flags.watch) != 2 {
-		t.Fatalf("expected 2 watch dirs, got %d: %v", len(flags.watch), flags.watch)
+	if len(watchFlags.dirs) != 2 {
+		t.Fatalf("expected 2 watch dirs, got %d: %v", len(watchFlags.dirs), watchFlags.dirs)
 	}
-	if flags.watch[0] != "./tasks1" || flags.watch[1] != "./tasks2" {
-		t.Errorf("unexpected watch flags: %v", flags.watch)
+	if watchFlags.dirs[0] != "./tasks1" || watchFlags.dirs[1] != "./tasks2" {
+		t.Errorf("unexpected watch flags: %v", watchFlags.dirs)
 	}
 }

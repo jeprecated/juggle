@@ -39,3 +39,21 @@ Add `juggle serve [folder] [prompts...] --port 8080` subcommand that starts an H
 - Internally builds same Config as watch subcommand, adds HTTP server alongside
 - Signal handling: context cancellation stops both HTTP server (Shutdown) and RunWatch (cfg.Shutdown channel)
 - No new dependencies beyond stdlib `net/http`
+
+## Completion Summary
+
+- Added `internal/cli/serve.go`: `juggle serve` cobra subcommand with HTTP handler, file writing, and signal handling
+- `generateServeFilename(t, id, ext)`: produces `YYYYMMDD-HHMMSS-<id>.<ext>` timestamp filenames
+- `newServeHandler(watchDir)`: HTTP handler accepting POST to `/prompt.txt`, `/prompt.md`, `/prompt.json`; returns 202 Accepted with empty body; unsupported paths return 404; non-POST returns 405
+- `RunServe(cfg, addr)`: starts RunWatch in goroutine, HTTP server in main goroutine; graceful shutdown via cfg.Shutdown channel
+- `runServeCmd`: builds Config from flags and calls RunServe; signal handling mirrors root command
+- Serve flags: `--port` (8080), `--bind` (127.0.0.1), `--workers`, `--dashboard`; all shared flags inherited via PersistentFlags
+- Added `internal/cli/serve_test.go`: 10 unit tests covering filename format and all HTTP handler behaviors
+- Fixed pre-existing 0001 incomplete work: updated `config.go` and `config_test.go` references from `flags.watch`/`flags.workers` to `watchFlags.dirs`/`watchFlags.workers`
+
+### Files Changed
+
+- `internal/cli/serve.go` (new — partial skeleton existed, extended with RunServe, serveCmd, runServeCmd)
+- `internal/cli/serve_test.go` (new)
+- `internal/cli/config.go` (modified — flags.watch→watchFlags.dirs, flags.workers→watchFlags.workers)
+- `internal/cli/config_test.go` (modified — same flag reference updates)

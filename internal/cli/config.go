@@ -128,7 +128,7 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 	}
 
 	if cfg.Watch != nil {
-		set("watch", func() { flags.watch = []string(*cfg.Watch) })
+		set("watch", func() { watchFlags.dirs = []string(*cfg.Watch) })
 	}
 	if cfg.Iterations != nil {
 		set("iterations", func() { flags.iterations = *cfg.Iterations })
@@ -205,7 +205,7 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 		set("system-prompt", func() { flags.systemPrompt = *cfg.SystemPrompt })
 	}
 	if cfg.Workers != nil {
-		set("workers", func() { flags.workers = *cfg.Workers })
+		set("workers", func() { watchFlags.workers = *cfg.Workers })
 	}
 	if cfg.WorkDir != nil {
 		set("workdir", func() { flags.workdir = *cfg.WorkDir })

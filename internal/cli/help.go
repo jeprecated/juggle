@@ -53,14 +53,18 @@ func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 		fmt.Fprintf(w, "%s\n%s\n\n", colorizeHeading("Examples:", color), colorizeExamples(cmd.Example, color))
 	}
 
-	// Collect flags into groups
+	// Collect flags into groups.
+	// Visit both cmd.Flags() (local + inherited persistent) and cmd.PersistentFlags()
+	// (the command's own persistent flags, not visible in Flags() for root commands).
 	groupSets := make(map[string]*pflag.FlagSet)
 	otherSet := pflag.NewFlagSet("other", pflag.ContinueOnError)
+	seen := make(map[string]bool)
 
-	cmd.Flags().VisitAll(func(f *pflag.Flag) {
-		if f.Hidden {
+	addFlag := func(f *pflag.Flag) {
+		if seen[f.Name] || f.Hidden {
 			return
 		}
+		seen[f.Name] = true
 		if grps, ok := f.Annotations[flagGroupKey]; ok && len(grps) > 0 {
 			grp := grps[0]
 			if groupSets[grp] == nil {
@@ -70,7 +74,11 @@ func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 		} else {
 			otherSet.AddFlag(f)
 		}
-	})
+	}
+
+	cmd.Flags().VisitAll(addFlag)
+	cmd.PersistentFlags().VisitAll(addFlag)
+	cmd.InheritedFlags().VisitAll(addFlag)
 
 	// Render groups in defined order
 	for _, grp := range groupOrder {

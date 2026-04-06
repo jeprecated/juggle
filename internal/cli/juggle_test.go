@@ -407,13 +407,76 @@ func TestHelpExamplesExist(t *testing.T) {
 	checks := []string{
 		`"fix the failing tests"`,
 		"@task.md",
-		"--watch",
+		"juggle watch",
 		"--trust",
 	}
 	for _, want := range checks {
 		if !strings.Contains(rootCmd.Example, want) {
 			t.Errorf("rootCmd.Example missing %q", want)
 		}
+	}
+}
+
+func TestWatchSubcommand_Exists(t *testing.T) {
+	cmd, _, err := rootCmd.Find([]string{"watch"})
+	if err != nil {
+		t.Fatalf("finding watch subcommand: %v", err)
+	}
+	if cmd == nil || cmd.Name() != "watch" {
+		t.Error("watch subcommand not registered under rootCmd")
+	}
+}
+
+func TestWatchSubcommand_HasWatchSpecificFlags(t *testing.T) {
+	cmd, _, _ := rootCmd.Find([]string{"watch"})
+	for _, name := range []string{"dir", "workers", "dashboard"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Errorf("watch subcommand missing --%s flag", name)
+		}
+	}
+}
+
+func TestRootCmd_WatchFlagsRemoved(t *testing.T) {
+	for _, name := range []string{"watch", "workers", "dashboard"} {
+		if rootCmd.Flags().Lookup(name) != nil {
+			t.Errorf("root command should not have --%s flag", name)
+		}
+		if rootCmd.PersistentFlags().Lookup(name) != nil {
+			t.Errorf("root command persistent flags should not have --%s flag", name)
+		}
+	}
+}
+
+func TestWatchSubcommand_InheritsSharedFlags(t *testing.T) {
+	// Shared flags are on root's PersistentFlags; cobra inherits them to all subcommands.
+	pf := rootCmd.PersistentFlags()
+	for _, name := range []string{"iterations", "model", "trust", "dry-run", "cmd-before", "cmd-after"} {
+		if pf.Lookup(name) == nil {
+			t.Errorf("shared flag --%s should be on root's persistent flags (inherited by watch)", name)
+		}
+	}
+}
+
+func TestWatchSubcommand_DryRun(t *testing.T) {
+	dir := t.TempDir()
+	var out bytes.Buffer
+	cfg := Config{
+		Content: "do the work",
+		Watch:   []string{dir},
+		DryRun:  true,
+		Stdout:  &out,
+		Stderr:  &bytes.Buffer{},
+	}
+	err := Run(cfg)
+	if err != nil {
+		t.Fatalf("watch --dry-run should not error, got: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "main prompt") {
+		t.Errorf("dry-run output should contain 'main prompt', got:\n%s", output)
+	}
+	if !strings.Contains(output, "do the work") {
+		t.Errorf("dry-run output should contain the prompt content, got:\n%s", output)
 	}
 }
 

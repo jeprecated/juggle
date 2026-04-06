@@ -17,16 +17,40 @@ func TestHelpFlagGroupHeadings(t *testing.T) {
 	}
 	out := buf.String()
 
+	// Root command shows shared flag groups; Watch Mode is on the watch subcommand.
 	groups := []string{
 		"Loop Control",
 		"Agent Configuration",
 		"Lifecycle Hooks",
-		"Watch Mode",
 		"Output",
 	}
 	for _, g := range groups {
 		if !strings.Contains(out, g) {
-			t.Errorf("help output missing group heading %q", g)
+			t.Errorf("root help output missing group heading %q", g)
+		}
+	}
+	if strings.Contains(out, "Watch Mode") {
+		t.Error("root help should not show Watch Mode group (it belongs to the watch subcommand)")
+	}
+}
+
+func TestWatchCmdHelpFlagGroupHeadings(t *testing.T) {
+	watchSubCmd, _, err := rootCmd.Find([]string{"watch"})
+	if err != nil || watchSubCmd == nil {
+		t.Skip("watch subcommand not found")
+	}
+	var buf bytes.Buffer
+	watchSubCmd.SetOut(&buf)
+	defer watchSubCmd.SetOut(os.Stdout)
+	if err := watchSubCmd.Help(); err != nil {
+		t.Fatalf("Help() error: %v", err)
+	}
+	out := buf.String()
+
+	groups := []string{"Watch Mode", "Loop Control", "Agent Configuration"}
+	for _, g := range groups {
+		if !strings.Contains(out, g) {
+			t.Errorf("watch subcommand help missing group heading %q", g)
 		}
 	}
 }
@@ -66,7 +90,7 @@ func TestHelpContainsAllVisibleFlags(t *testing.T) {
 	}
 	out := buf.String()
 
-	// One representative flag from each group
+	// One representative flag from each shared group (no watch-specific flags on root)
 	flagsWanted := []string{
 		"--iterations",
 		"--delay",
@@ -76,14 +100,18 @@ func TestHelpContainsAllVisibleFlags(t *testing.T) {
 		"--system-prompt",
 		"--cmd-before",
 		"--agent-pre",
-		"--watch",
-		"--workers",
 		"--log",
 		"--verbose",
 	}
 	for _, flag := range flagsWanted {
 		if !strings.Contains(out, flag) {
-			t.Errorf("help output missing flag %q", flag)
+			t.Errorf("root help output missing flag %q", flag)
+		}
+	}
+	// Watch-specific flags should NOT appear on root command help
+	for _, flag := range []string{"--watch", "--workers", "--dashboard"} {
+		if strings.Contains(out, flag) {
+			t.Errorf("root help should not show watch-specific flag %q", flag)
 		}
 	}
 }
