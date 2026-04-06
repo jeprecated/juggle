@@ -81,6 +81,65 @@ func TestGroupedHelpWithColorFalseHasNoANSI(t *testing.T) {
 	}
 }
 
+func TestRootHelpListsWatchAndServeSubcommands(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(os.Stdout)
+	if err := rootCmd.Help(); err != nil {
+		t.Fatalf("Help() error: %v", err)
+	}
+	out := buf.String()
+	for _, sub := range []string{"watch", "serve"} {
+		if !strings.Contains(out, sub) {
+			t.Errorf("root help should list %q subcommand", sub)
+		}
+	}
+}
+
+func TestServeHelpShowsServeGroup(t *testing.T) {
+	serveSubCmd, _, err := rootCmd.Find([]string{"serve"})
+	if err != nil || serveSubCmd == nil {
+		t.Skip("serve subcommand not found")
+	}
+	var buf bytes.Buffer
+	serveSubCmd.SetOut(&buf)
+	defer serveSubCmd.SetOut(os.Stdout)
+	if err := serveSubCmd.Help(); err != nil {
+		t.Fatalf("Help() error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Serve:") {
+		t.Error("serve help should show Serve group heading")
+	}
+	for _, flag := range []string{"--port", "--bind"} {
+		if !strings.Contains(out, flag) {
+			t.Errorf("serve help should show flag %q", flag)
+		}
+	}
+}
+
+func TestServeHelpShowsWatchModeGroup(t *testing.T) {
+	serveSubCmd, _, err := rootCmd.Find([]string{"serve"})
+	if err != nil || serveSubCmd == nil {
+		t.Skip("serve subcommand not found")
+	}
+	var buf bytes.Buffer
+	serveSubCmd.SetOut(&buf)
+	defer serveSubCmd.SetOut(os.Stdout)
+	if err := serveSubCmd.Help(); err != nil {
+		t.Fatalf("Help() error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "Watch Mode:") {
+		t.Error("serve help should show Watch Mode group heading")
+	}
+	for _, flag := range []string{"--workers", "--dashboard"} {
+		if !strings.Contains(out, flag) {
+			t.Errorf("serve help should show flag %q", flag)
+		}
+	}
+}
+
 func TestHelpContainsAllVisibleFlags(t *testing.T) {
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)

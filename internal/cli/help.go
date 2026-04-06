@@ -16,6 +16,7 @@ var groupOrder = []string{
 	"Agent Configuration",
 	"Lifecycle Hooks",
 	"Watch Mode",
+	"Serve",
 	"Output",
 }
 

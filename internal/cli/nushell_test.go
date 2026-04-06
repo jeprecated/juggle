@@ -82,6 +82,17 @@ func TestGenNushellCompletion(t *testing.T) {
 		}
 	})
 
+	t.Run("includes watch and serve for juggle root command", func(t *testing.T) {
+		var buf bytes.Buffer
+		genNushellCompletion(rootCmd, &buf)
+		got := buf.String()
+		for _, sub := range []string{"juggle watch", "juggle serve"} {
+			if !strings.Contains(got, `extern "`+sub+`"`) {
+				t.Errorf("expected extern block for %q in nushell completion, got:\n%s", sub, got)
+			}
+		}
+	})
+
 	t.Run("hidden flags are excluded", func(t *testing.T) {
 		cmd := &cobra.Command{Use: "testcmd"}
 		cmd.Flags().Bool("secret", false, "hidden flag")
