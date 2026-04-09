@@ -99,10 +99,10 @@ func TestRun_DryRun(t *testing.T) {
 
 func TestRun_WorkDirNotExist(t *testing.T) {
 	cfg := Config{
-		Content:  "do work",
-		WorkDir:  "/nonexistent/path/that/does/not/exist",
-		Stderr:   &bytes.Buffer{},
-		Runner:   agent.NewMockRunner(&agent.RunResult{}),
+		Content: "do work",
+		WorkDir: "/nonexistent/path/that/does/not/exist",
+		Stderr:  &bytes.Buffer{},
+		Runner:  agent.NewMockRunner(&agent.RunResult{}),
 	}
 	err := Run(cfg)
 	if err == nil {

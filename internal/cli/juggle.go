@@ -60,49 +60,49 @@ var errCostGuard = errors.New("cost guard triggered")
 
 // Config holds all CLI configuration for a juggle run.
 type Config struct {
-	Content      string        // Resolved prompt content (joined)
-	Watch        []string      // Watch directory paths (repeatable --watch)
-	Iterations   int           // Max iterations (0 = unlimited)
-	Model        string        // Model name
-	Provider     string        // Provider name
-	Delay        int           // Minutes between iterations
-	Fuzz         int           // +/- random variance in minutes
-	Trust        bool          // Bypass permission checks
-	Plan         bool          // Read-only plan mode
-	Interactive  bool          // Interactive TUI mode
-	Timeout      time.Duration // Per-iteration timeout
-	MaxWait      time.Duration // Max rate limit wait
-	DryRun       bool          // Show prompt, don't run
-	ShowThinking bool          // Show thinking blocks
-	Verbose      bool          // Show tool inputs in headless output
-	MaxFailures  int           // Stop after N consecutive non-zero exits (0 = disabled)
-	CmdBefore    string        // Shell command to run before each iteration
-	CmdAfter     string        // Shell command to run after each iteration
-	StopWhen     string        // Shell command; exit 0 stops the loop gracefully
-	AgentPre     string        // Agent session prompt to run once before the loop
-	AgentBefore  string        // Agent session prompt to run before each iteration
-	AgentAfter   string        // Agent session prompt to run after each iteration
-	AgentPost         string        // Agent session prompt to run once after the loop
-	Hooks             []string      // raw --hook flag values (for dry-run display)
-	HooksSettingsFile string        // path to temp hooks settings JSON file (Claude-specific)
-	Log               string        // Path to log file (summary appended on completion)
-	MaxCost           float64       // Stop loop when cumulative cost exceeds this (0 = disabled)
-	Label             string        // Optional run label (exposed as JUGGLE_LABEL)
-	RunID             string        // Stable UUID for the entire run (generated in Run() if empty)
-	AllowedTools      []string      // Restrict agent to these tools only (mutually exclusive with DisallowedTools)
-	DisallowedTools   []string      // Block specific tools (mutually exclusive with AllowedTools)
-	MaxTurns          int           // Cap tool-use turns per iteration (0 = provider default)
-	MCPConfig         string        // Path to MCP server config file
-	OnFailure         OnFailure     // What to do on non-zero exit: stop, continue, retry (default: stop)
-	Retries           int           // Max retries for OnFailureRetry mode (0 = default 2)
-	RetryBackoffs     []time.Duration // Override retry backoffs for testing (nil = use defaults)
-	PassthroughArgs   []string      // Extra flags passed verbatim to the agent CLI after juggle's own flags
-	AgentCmd          string        // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
-	SystemPrompt      string        // Optional system prompt appended to the agent's system prompt
-	Workers           int           // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
-	WorkDir           string        // Working directory for agent spawning (empty = juggle's cwd)
-	Resume            bool          // Resume from last completed iteration recorded in --log file
-	Dashboard         bool          // Show TUI dashboard for watch workers (auto-enabled for glob watch)
+	Content           string                  // Resolved prompt content (joined)
+	Watch             []string                // Watch directory paths (repeatable --watch)
+	Iterations        int                     // Max iterations (0 = unlimited)
+	Model             string                  // Model name
+	Provider          string                  // Provider name
+	Delay             int                     // Minutes between iterations
+	Fuzz              int                     // +/- random variance in minutes
+	Trust             bool                    // Bypass permission checks
+	Plan              bool                    // Read-only plan mode
+	Interactive       bool                    // Interactive TUI mode
+	Timeout           time.Duration           // Per-iteration timeout
+	MaxWait           time.Duration           // Max rate limit wait
+	DryRun            bool                    // Show prompt, don't run
+	ShowThinking      bool                    // Show thinking blocks
+	Verbose           bool                    // Show tool inputs in headless output
+	MaxFailures       int                     // Stop after N consecutive non-zero exits (0 = disabled)
+	CmdBefore         string                  // Shell command to run before each iteration
+	CmdAfter          string                  // Shell command to run after each iteration
+	StopWhen          string                  // Shell command; exit 0 stops the loop gracefully
+	AgentPre          string                  // Agent session prompt to run once before the loop
+	AgentBefore       string                  // Agent session prompt to run before each iteration
+	AgentAfter        string                  // Agent session prompt to run after each iteration
+	AgentPost         string                  // Agent session prompt to run once after the loop
+	Hooks             []string                // raw --hook flag values (for dry-run display)
+	HooksSettingsFile string                  // path to temp hooks settings JSON file (Claude-specific)
+	Log               string                  // Path to log file (summary appended on completion)
+	MaxCost           float64                 // Stop loop when cumulative cost exceeds this (0 = disabled)
+	Label             string                  // Optional run label (exposed as JUGGLE_LABEL)
+	RunID             string                  // Stable UUID for the entire run (generated in Run() if empty)
+	AllowedTools      []string                // Restrict agent to these tools only (mutually exclusive with DisallowedTools)
+	DisallowedTools   []string                // Block specific tools (mutually exclusive with AllowedTools)
+	MaxTurns          int                     // Cap tool-use turns per iteration (0 = provider default)
+	MCPConfig         string                  // Path to MCP server config file
+	OnFailure         OnFailure               // What to do on non-zero exit: stop, continue, retry (default: stop)
+	Retries           int                     // Max retries for OnFailureRetry mode (0 = default 2)
+	RetryBackoffs     []time.Duration         // Override retry backoffs for testing (nil = use defaults)
+	PassthroughArgs   []string                // Extra flags passed verbatim to the agent CLI after juggle's own flags
+	AgentCmd          string                  // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
+	SystemPrompt      string                  // Optional system prompt appended to the agent's system prompt
+	Workers           int                     // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
+	WorkDir           string                  // Working directory for agent spawning (empty = juggle's cwd)
+	Resume            bool                    // Resume from last completed iteration recorded in --log file
+	Dashboard         bool                    // Show TUI dashboard for watch workers (auto-enabled for glob watch)
 	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
@@ -177,27 +177,27 @@ func writeSummary(cfg Config, stats runStats) {
 
 // flags is used for cobra flag binding for the root command and its persistent flags.
 var flags struct {
-	iterations   int
-	model        string
-	provider     string
-	delay        int
-	fuzz         int
-	trust        bool
-	plan         bool
-	interactive  bool
-	timeout      time.Duration
-	maxWait      time.Duration
-	dryRun       bool
-	showThinking bool
-	verbose      bool
-	maxFailures  int
-	cmdBefore    string
-	cmdAfter     string
-	stopWhen     string
-	agentPre     []string
-	agentBefore  []string
-	agentAfter   []string
-	agentPost    []string
+	iterations      int
+	model           string
+	provider        string
+	delay           int
+	fuzz            int
+	trust           bool
+	plan            bool
+	interactive     bool
+	timeout         time.Duration
+	maxWait         time.Duration
+	dryRun          bool
+	showThinking    bool
+	verbose         bool
+	maxFailures     int
+	cmdBefore       string
+	cmdAfter        string
+	stopWhen        string
+	agentPre        []string
+	agentBefore     []string
+	agentAfter      []string
+	agentPost       []string
 	hooks           []string
 	hooksFile       string
 	log             string
@@ -351,7 +351,7 @@ var rootCmd = &cobra.Command{
 	Use:     "juggle [prompt-content...]",
 	Short:   "Minimal agent loop runner",
 	Version: "dev",
-	Long: `Run an AI agent in a loop. All positional args are prompt content (strings or @file references).`,
+	Long:    `Run an AI agent in a loop. All positional args are prompt content (strings or @file references).`,
 	Example: `  # Basic: run 3 iterations
   juggle "fix the failing tests" -n 3
 
@@ -538,6 +538,11 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	cfg.Runner = &agent.ProviderRunner{Provider: p}
 
+	stderr := cfg.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+
 	// Set up signal handling: first signal = graceful shutdown, second = force kill
 	shutdown := make(chan struct{})
 	var shutdownOnce sync.Once
@@ -550,6 +555,7 @@ func run(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigCh
+		writeStopRequestedMessage(stderr, isColorEnabled(stderr))
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
 		// Second signal: cancel child context then exit
@@ -564,12 +570,12 @@ func run(cmd *cobra.Command, args []string) error {
 	// Set up keypress listener: pressing 'q' acts like the first Ctrl+C.
 	// Only active when stdin is a TTY; silently skipped otherwise.
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
-		color := isColorEnabled(cfg.Stderr)
+		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		waitKeypress := StartKeypressListener(tty, trigger, color, cfg.Stderr)
+		waitKeypress := StartKeypressListener(tty, trigger, color, stderr)
 		defer func() {
-			ttyCleanup()    // restore terminal + close tty (unblocks goroutine Read)
-			waitKeypress()  // wait for goroutine to exit
+			ttyCleanup()   // restore terminal + close tty (unblocks goroutine Read)
+			waitKeypress() // wait for goroutine to exit
 		}()
 	}
 
@@ -721,6 +727,11 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	}
 	cfg.Runner = &agent.ProviderRunner{Provider: p}
 
+	stderr := cfg.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
+	}
+
 	// Set up signal handling: first signal = graceful shutdown, second = force kill
 	shutdown := make(chan struct{})
 	var shutdownOnce sync.Once
@@ -733,6 +744,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigCh
+		writeStopRequestedMessage(stderr, isColorEnabled(stderr))
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
 		forceCancel()
@@ -744,9 +756,9 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	cfg.ForceCtx = forceCtx
 
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
-		color := isColorEnabled(cfg.Stderr)
+		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		waitKeypress := StartKeypressListener(tty, trigger, color, cfg.Stderr)
+		waitKeypress := StartKeypressListener(tty, trigger, color, stderr)
 		defer func() {
 			ttyCleanup()
 			waitKeypress()

@@ -77,7 +77,7 @@ func TestStartKeypressListener_PrintsMessageOnQ(t *testing.T) {
 	io.WriteString(w, "q") //nolint:errcheck
 	<-done
 
-	if !strings.Contains(stderr.String(), "Stopping after this iteration completes") {
+	if !strings.Contains(stderr.String(), stopRequestedMessage) {
 		t.Errorf("expected stop message, got: %q", stderr.String())
 	}
 }
@@ -99,7 +99,7 @@ func TestStartKeypressListener_PrintsRedWhenColorEnabled(t *testing.T) {
 	if !strings.Contains(output, "\033[31m") {
 		t.Error("expected red ANSI code when color enabled")
 	}
-	if !strings.Contains(output, "Stopping after this iteration completes") {
+	if !strings.Contains(output, stopRequestedMessage) {
 		t.Error("expected stop message")
 	}
 }
@@ -131,4 +131,8 @@ func TestStartKeypressListener_CleanupOnEOF(t *testing.T) {
 
 	w.Close() // EOF causes goroutine to exit
 	cleanup() // should not hang
+}
+
+func TestWriteStopRequestedMessage_NilWriterFallsBack(t *testing.T) {
+	writeStopRequestedMessage(nil, false)
 }
