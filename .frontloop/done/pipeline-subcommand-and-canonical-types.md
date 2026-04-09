@@ -30,3 +30,21 @@ This task is about establishing the model and CLI entrypoint so later tasks can 
 - Prefer a new `internal/pipeline` package over burying the scheduler model inside `internal/cli`
 - The subcommand can be non-executing or stubbed initially if needed, but it should be wired cleanly
 
+## Completion Summary
+
+Implemented in two new packages/files:
+
+**`internal/pipeline/types.go`** — canonical pipeline model:
+- `Event` type with `Valid()` and 6 named constants (run-start, loop-start, loop-body, loop-end, run-end, failure)
+- `NodeKind` type with `Valid()` and agent/cmd constants
+- `FailurePolicy` type with `Valid()` and stop/continue/retry constants
+- `Node` struct with all shared orchestration fields plus `EffectiveFailurePolicy()` (defaults to stop)
+- `AgentSpec` and `CmdSpec` structs for kind-specific fields
+- `Pipeline` struct with metadata and `[]Node`
+
+**`internal/cli/pipeline.go`** — subcommand wiring:
+- `juggle pipeline` registered via cobra in `init()`
+- Help text documents node kinds, shared flags, and an inline example
+- Stubbed `runPipelineCmd` (prints not-yet-implemented; execution deferred to future tasks)
+
+Tests: `internal/pipeline/types_test.go` (event/kind/policy validation, field shape checks) and `internal/cli/pipeline_test.go` (subcommand registration, help text, root listing). All 795 tests pass.
