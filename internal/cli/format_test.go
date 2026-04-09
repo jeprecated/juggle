@@ -19,6 +19,9 @@ func TestIterationHeader(t *testing.T) {
 		if !strings.Contains(got, "──") {
 			t.Error("missing separator dashes")
 		}
+		if !strings.HasSuffix(got, "\n\n") {
+			t.Errorf("got %q, want blank line after header", got)
+		}
 	})
 
 	t.Run("unlimited iterations", func(t *testing.T) {
@@ -71,6 +74,17 @@ func TestIterationHeader(t *testing.T) {
 		// Should not contain ANSI escape sequences
 		if strings.Contains(got, "\033[") {
 			t.Errorf("non-TTY output contains ANSI codes: %q", got)
+		}
+	})
+
+	t.Run("subsequent iterations are separated by a blank line", func(t *testing.T) {
+		var buf bytes.Buffer
+		f := NewLoopFormatter(&buf)
+		f.IterationHeader(1, 3, "", "")
+		f.IterationHeader(2, 3, "", "")
+		got := buf.String()
+		if !strings.Contains(got, "\n\n── Iteration 2/3 ──") {
+			t.Errorf("got %q, want blank line before second header", got)
 		}
 	})
 }

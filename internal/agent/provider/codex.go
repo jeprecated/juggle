@@ -23,14 +23,15 @@ func (c *CodexProvider) Type() Type {
 	return TypeCodex
 }
 
-// MapModel converts canonical model name to Codex (OpenAI) format.
-// Codex uses OpenAI models: o4-mini (default/fast), o3 (powerful).
+// MapModel converts explicit OpenAI model names for Codex.
+// Generic juggle aliases do not map cleanly across Codex account types, so they
+// intentionally fall back to the CLI default by returning "".
 func (c *CodexProvider) MapModel(canonical string) string {
 	switch canonical {
 	case "small", "haiku", "medium", "sonnet":
-		return "o4-mini"
+		return ""
 	case "large", "opus":
-		return "o3"
+		return ""
 	default:
 		return canonical
 	}
@@ -40,13 +41,13 @@ func (c *CodexProvider) MapModel(canonical string) string {
 func (c *CodexProvider) MapPermission(mode PermissionMode) (flag, value string) {
 	switch mode {
 	case PermissionPlan:
-		return "--approval-mode", "suggest"
+		return "--sandbox", "read-only"
 	case PermissionBypass:
-		return "--approval-mode", "full-auto"
+		return "--dangerously-bypass-approvals-and-sandbox", ""
 	case PermissionAcceptEdits:
-		return "--approval-mode", "auto-edit"
+		return "--full-auto", ""
 	default:
-		return "--approval-mode", "auto-edit"
+		return "--full-auto", ""
 	}
 }
 
@@ -61,16 +62,20 @@ func (c *CodexProvider) Run(opts RunOptions) (*RunResult, error) {
 // codexHeadlessArgs builds the CLI argument list for a headless Codex invocation.
 // Extracted for testability.
 func codexHeadlessArgs(opts RunOptions) []string {
-	args := []string{"--quiet"}
+	args := []string{"exec"}
 
-	if opts.Model != "" {
+	if mappedModel := NewCodexProvider().MapModel(opts.Model); mappedModel != "" {
 		p := NewCodexProvider()
 		args = append(args, "--model", p.MapModel(opts.Model))
 	}
 
 	p := NewCodexProvider()
 	flag, value := p.MapPermission(opts.Permission)
-	args = append(args, flag, value)
+	if value != "" {
+		args = append(args, flag, value)
+	} else if flag != "" {
+		args = append(args, flag)
+	}
 
 	args = append(args, opts.PassthroughArgs...)
 
@@ -80,7 +85,38 @@ func codexHeadlessArgs(opts RunOptions) []string {
 	return args
 }
 
-// runHeadless executes Codex in headless mode (--quiet flag, captured output)
+func codexHeadlessSpec(opts RunOptions) commandSpec {
+	return commandSpec{
+		Binary: "codex",
+		Args:   codexHeadlessArgs(opts),
+		Prompt: opts.Prompt,
+	}
+}
+
+func codexInteractiveSpec(opts RunOptions) commandSpec {
+	args := []string{}
+
+	if mappedModel := NewCodexProvider().MapModel(opts.Model); mappedModel != "" {
+		args = append(args, "--model", mappedModel)
+	}
+
+	flag, value := NewCodexProvider().MapPermission(opts.Permission)
+	args = appendFlag(args, flag, value)
+
+	args = append(args, opts.PassthroughArgs...)
+
+	if opts.Prompt != "" {
+		args = append(args, opts.Prompt)
+	}
+
+	return commandSpec{
+		Binary: "codex",
+		Args:   args,
+		Prompt: opts.Prompt,
+	}
+}
+
+// runHeadless executes Codex in headless mode via `codex exec`.
 func (c *CodexProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
@@ -100,7 +136,7 @@ func (c *CodexProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		fmt.Fprintf(os.Stderr, "warning: --mcp-config is not supported by the codex provider and will be ignored\n")
 	}
 
-	args := codexHeadlessArgs(opts)
+	spec := codexHeadlessSpec(opts)
 
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -115,7 +151,7 @@ func (c *CodexProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("codex", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
@@ -187,20 +223,7 @@ func (c *CodexProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 func (c *CodexProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
-	args := []string{}
-
-	if opts.Model != "" {
-		args = append(args, "--model", c.MapModel(opts.Model))
-	}
-
-	flag, value := c.MapPermission(opts.Permission)
-	args = append(args, flag, value)
-
-	args = append(args, opts.PassthroughArgs...)
-
-	if opts.Prompt != "" {
-		args = append(args, opts.Prompt)
-	}
+	spec := codexInteractiveSpec(opts)
 
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -215,7 +238,7 @@ func (c *CodexProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("codex", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir

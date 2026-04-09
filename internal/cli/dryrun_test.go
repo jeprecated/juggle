@@ -24,6 +24,12 @@ func TestPrintDryRun_OnlyMainPrompt(t *testing.T) {
 	if !strings.Contains(out, "[main prompt]") {
 		t.Error("missing main prompt section header")
 	}
+	if !strings.Contains(out, "[provider command]") {
+		t.Error("missing provider command section header")
+	}
+	if !strings.Contains(out, "claude --disable-slash-commands") {
+		t.Error("missing default provider command preview")
+	}
 	// No other sections configured — none should appear
 	for _, section := range []string{"[agent-pre]", "[cmd-before]", "[agent-before]", "[agent-after]", "[cmd-after]", "[stop-when]", "[agent-post]", "[hooks]"} {
 		if strings.Contains(out, section) {
@@ -50,7 +56,7 @@ func TestPrintDryRun_AllSections(t *testing.T) {
 	out := buf.String()
 
 	// All expected sections present
-	for _, section := range []string{"[agent-pre]", "[cmd-before]", "[agent-before]", "[main prompt]", "[agent-after]", "[cmd-after]", "[stop-when]", "[agent-post]", "[hooks]"} {
+	for _, section := range []string{"[provider command]", "[agent-pre]", "[cmd-before]", "[agent-before]", "[main prompt]", "[agent-after]", "[cmd-after]", "[stop-when]", "[agent-post]", "[hooks]"} {
 		if !strings.Contains(out, section) {
 			t.Errorf("missing section %q", section)
 		}
@@ -104,6 +110,7 @@ func TestPrintDryRun_ExecutionOrder(t *testing.T) {
 
 	// Verify order by finding index of each section header
 	order := []string{
+		"[provider command]",
 		"[agent-pre]",
 		"[cmd-before]",
 		"[agent-before]",
@@ -139,6 +146,9 @@ func TestPrintDryRun_WatchMode(t *testing.T) {
 	if !strings.Contains(out, "[main prompt]") {
 		t.Error("missing main prompt section")
 	}
+	if !strings.Contains(out, "[provider command]") {
+		t.Error("missing provider command section")
+	}
 	if !strings.Contains(out, "process tasks") {
 		t.Error("missing content in watch prompt")
 	}
@@ -162,6 +172,9 @@ func TestPrintDryRun_OmitsEmptySections(t *testing.T) {
 	if !strings.Contains(out, "[cmd-before]") {
 		t.Error("cmd-before section should appear")
 	}
+	if !strings.Contains(out, "[provider command]") {
+		t.Error("provider command section should appear")
+	}
 	if !strings.Contains(out, "[main prompt]") {
 		t.Error("main prompt section should appear")
 	}
@@ -184,6 +197,9 @@ func TestPrintDryRun_HooksList(t *testing.T) {
 
 	if !strings.Contains(out, "[hooks]") {
 		t.Error("hooks section missing")
+	}
+	if !strings.Contains(out, "[provider command]") {
+		t.Error("provider command section missing")
 	}
 	if !strings.Contains(out, "PreToolUse:echo hello") {
 		t.Error("first hook missing")
@@ -212,6 +228,9 @@ func TestRun_DryRun_Verbose(t *testing.T) {
 	if !strings.Contains(out, "[main prompt]") {
 		t.Error("dry-run verbose missing main prompt section header")
 	}
+	if !strings.Contains(out, "[provider command]") {
+		t.Error("dry-run verbose missing provider command section")
+	}
 	if !strings.Contains(out, "[agent-pre]") {
 		t.Error("dry-run verbose missing agent-pre section")
 	}
@@ -220,5 +239,52 @@ func TestRun_DryRun_Verbose(t *testing.T) {
 	}
 	if !strings.Contains(out, "fix the tests") {
 		t.Error("dry-run verbose missing main content")
+	}
+}
+
+func TestPrintDryRun_ProviderCommand_Custom(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := Config{
+		Content:    "fix the tests",
+		Iterations: 2,
+		Provider:   "custom",
+		AgentCmd:   "my-agent --prompt {prompt} --model {model}",
+		Model:      "sonnet",
+	}
+	printDryRun(cfg, &buf)
+	out := buf.String()
+
+	if !strings.Contains(out, "[provider command]") {
+		t.Fatal("provider command section missing")
+	}
+	if !strings.Contains(out, "my-agent") {
+		t.Error("missing custom binary in provider preview")
+	}
+	if !strings.Contains(out, "--model sonnet") {
+		t.Error("missing custom model mapping in provider preview")
+	}
+	if !strings.Contains(out, "<prompt>") {
+		t.Error("missing prompt placeholder in provider preview")
+	}
+	if !strings.Contains(out, "\nprompt:\n") {
+		t.Error("missing separate prompt block in provider preview")
+	}
+}
+
+func TestPrintDryRun_ProviderCommand_ClaudeShowsStdin(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := Config{
+		Content:    "fix the tests",
+		Iterations: 1,
+		Provider:   "claude",
+	}
+	printDryRun(cfg, &buf)
+	out := buf.String()
+
+	if !strings.Contains(out, "claude --disable-slash-commands") {
+		t.Fatal("missing claude binary in provider preview")
+	}
+	if !strings.Contains(out, "\nstdin:\n") {
+		t.Error("expected stdin prompt preview for claude")
 	}
 }

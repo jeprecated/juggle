@@ -129,11 +129,51 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 	return args
 }
 
+func claudeHeadlessSpec(opts RunOptions) commandSpec {
+	return commandSpec{
+		Binary:      "claude",
+		Args:        claudeHeadlessArgs(opts),
+		Prompt:      opts.Prompt,
+		PromptStdin: true,
+	}
+}
+
+func claudeInteractiveSpec(opts RunOptions) commandSpec {
+	args := []string{
+		"--disable-slash-commands",
+	}
+
+	if opts.SystemPrompt != "" {
+		args = append(args, "--append-system-prompt", opts.SystemPrompt)
+	}
+
+	if opts.Model != "" {
+		args = append(args, "--model", NewClaudeProvider().MapModel(opts.Model))
+	}
+
+	flag, value := NewClaudeProvider().MapPermission(opts.Permission)
+	args = appendFlag(args, flag, value)
+
+	if opts.HooksSettingsFile != "" {
+		args = append(args, "--settings", opts.HooksSettingsFile)
+	}
+
+	if opts.Prompt != "" {
+		args = append(args, opts.Prompt)
+	}
+
+	return commandSpec{
+		Binary: "claude",
+		Args:   args,
+		Prompt: opts.Prompt,
+	}
+}
+
 // runHeadless executes Claude in headless mode (-p flag, captured output)
 func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
-	args := claudeHeadlessArgs(opts)
+	spec := claudeHeadlessSpec(opts)
 
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
@@ -149,7 +189,7 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("claude", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
@@ -184,7 +224,7 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	// Write prompt to stdin
 	go func() {
 		defer stdin.Close()
-		io.WriteString(stdin, opts.Prompt)
+		io.WriteString(stdin, spec.Prompt)
 	}()
 
 	// cmdDone is closed when cmd.Wait() returns; lets killProcessGroup skip SIGKILL
@@ -248,36 +288,7 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
-	// Build command arguments
-	args := []string{
-		"--disable-slash-commands",
-	}
-
-	// Append system prompt if provided
-	if opts.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", opts.SystemPrompt)
-	}
-
-	// Set model if provided
-	if opts.Model != "" {
-		args = append(args, "--model", c.MapModel(opts.Model))
-	}
-
-	// Set permission mode
-	flag, value := c.MapPermission(opts.Permission)
-	if value != "" {
-		args = append(args, flag, value)
-	} else {
-		args = append(args, flag)
-	}
-
-	// Pass hooks settings file if configured
-	if opts.HooksSettingsFile != "" {
-		args = append(args, "--settings", opts.HooksSettingsFile)
-	}
-
-	// Interactive mode: pass prompt as argument
-	args = append(args, opts.Prompt)
+	spec := claudeInteractiveSpec(opts)
 
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
@@ -293,7 +304,7 @@ func (c *ClaudeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("claude", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir

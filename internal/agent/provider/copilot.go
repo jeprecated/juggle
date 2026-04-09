@@ -97,6 +97,37 @@ func copilotHeadlessArgs(opts RunOptions) []string {
 	return args
 }
 
+func copilotHeadlessSpec(opts RunOptions) commandSpec {
+	return commandSpec{
+		Binary: "copilot",
+		Args:   copilotHeadlessArgs(opts),
+		Prompt: opts.Prompt,
+	}
+}
+
+func copilotInteractiveSpec(opts RunOptions) commandSpec {
+	args := []string{}
+
+	if opts.Model != "" {
+		args = append(args, fmt.Sprintf("--model=%s", NewCopilotProvider().MapModel(opts.Model)))
+	}
+
+	flag, value := NewCopilotProvider().MapPermission(opts.Permission)
+	args = appendFlag(args, flag, value)
+
+	args = append(args, opts.PassthroughArgs...)
+
+	if opts.Prompt != "" {
+		args = append(args, "-p", opts.Prompt)
+	}
+
+	return commandSpec{
+		Binary: "copilot",
+		Args:   args,
+		Prompt: opts.Prompt,
+	}
+}
+
 // runHeadless executes Copilot in headless mode (-p flag, captured output)
 func (c *CopilotProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
@@ -108,7 +139,7 @@ func (c *CopilotProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		fmt.Fprintf(os.Stderr, "warning: --mcp-config is not supported by the copilot provider and will be ignored\n")
 	}
 
-	args := copilotHeadlessArgs(opts)
+	spec := copilotHeadlessSpec(opts)
 
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -123,7 +154,7 @@ func (c *CopilotProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("copilot", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
@@ -195,22 +226,7 @@ func (c *CopilotProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 func (c *CopilotProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
-	args := []string{}
-
-	if opts.Model != "" {
-		args = append(args, fmt.Sprintf("--model=%s", c.MapModel(opts.Model)))
-	}
-
-	flag, _ := c.MapPermission(opts.Permission)
-	if flag != "" {
-		args = append(args, flag)
-	}
-
-	args = append(args, opts.PassthroughArgs...)
-
-	if opts.Prompt != "" {
-		args = append(args, "-p", opts.Prompt)
-	}
+	spec := copilotInteractiveSpec(opts)
 
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -225,7 +241,7 @@ func (c *CopilotProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("copilot", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir

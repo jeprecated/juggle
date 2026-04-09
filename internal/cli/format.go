@@ -16,8 +16,9 @@ const (
 // LoopFormatter prints iteration headers and status lines to stderr.
 // When the writer is a TTY, output uses dim gray ANSI styling.
 type LoopFormatter struct {
-	w     io.Writer
-	isTTY bool
+	w              io.Writer
+	isTTY          bool
+	iterationCount int
 }
 
 // NewLoopFormatter creates a formatter that writes to w.
@@ -45,10 +46,15 @@ func (f *LoopFormatter) IterationHeader(iteration, max int, filename, runLabel s
 	}
 	line := fmt.Sprintf("── %s ──", label)
 
+	if f.iterationCount > 0 {
+		fmt.Fprintln(f.w)
+	}
+	f.iterationCount++
+
 	if f.isTTY {
-		fmt.Fprintf(f.w, "%s%s%s\n", dimOn, line, dimOff)
+		fmt.Fprintf(f.w, "%s%s%s\n\n", ansiBold+ansiCyan, line, ansiReset)
 	} else {
-		fmt.Fprintln(f.w, line)
+		fmt.Fprintf(f.w, "%s\n\n", line)
 	}
 }
 

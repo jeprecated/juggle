@@ -62,6 +62,63 @@ func (o *OpenCodeProvider) Run(opts RunOptions) (*RunResult, error) {
 	return o.runHeadless(opts)
 }
 
+// opencodeHeadlessArgs builds the CLI argument list for a headless OpenCode invocation.
+// Extracted for testability.
+func opencodeHeadlessArgs(opts RunOptions) []string {
+	args := []string{"run"}
+
+	if opts.Model != "" {
+		p := NewOpenCodeProvider()
+		args = append(args, "--model", p.MapModel(opts.Model))
+	}
+
+	p := NewOpenCodeProvider()
+	flag, value := p.MapPermission(opts.Permission)
+	if flag != "" {
+		args = append(args, flag, value)
+	}
+
+	args = append(args, opts.PassthroughArgs...)
+
+	// `opencode run` expects the message as the final positional argument.
+	args = append(args, opts.Prompt)
+
+	return args
+}
+
+func opencodeHeadlessSpec(opts RunOptions) commandSpec {
+	return commandSpec{
+		Binary: "opencode",
+		Args:   opencodeHeadlessArgs(opts),
+		Prompt: opts.Prompt,
+	}
+}
+
+func opencodeInteractiveSpec(opts RunOptions) commandSpec {
+	args := []string{}
+
+	if opts.Model != "" {
+		args = append(args, "--model", NewOpenCodeProvider().MapModel(opts.Model))
+	}
+
+	flag, value := NewOpenCodeProvider().MapPermission(opts.Permission)
+	if flag != "" {
+		args = append(args, flag, value)
+	}
+
+	if opts.Prompt != "" {
+		args = append(args, "--prompt", opts.Prompt)
+	}
+
+	args = append(args, opts.PassthroughArgs...)
+
+	return commandSpec{
+		Binary: "opencode",
+		Args:   args,
+		Prompt: opts.Prompt,
+	}
+}
+
 // runHeadless executes OpenCode in headless mode (opencode run "prompt")
 func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
@@ -80,22 +137,7 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		fmt.Fprintf(os.Stderr, "warning: --mcp-config is not supported by the opencode provider and will be ignored\n")
 	}
 
-	// OpenCode uses: opencode run "prompt"
-	args := []string{"run"}
-
-	// Set model if provided
-	if opts.Model != "" {
-		args = append(args, "--model", o.MapModel(opts.Model))
-	}
-
-	// Set agent (permission mode equivalent)
-	flag, value := o.MapPermission(opts.Permission)
-	args = append(args, flag, value)
-
-	// OpenCode takes prompt as argument, not stdin
-	args = append(args, opts.Prompt)
-
-	args = append(args, opts.PassthroughArgs...)
+	spec := opencodeHeadlessSpec(opts)
 
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
@@ -111,7 +153,7 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("opencode", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
@@ -188,24 +230,7 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
-	// OpenCode interactive mode - no "run" subcommand
-	args := []string{}
-
-	// Set model if provided
-	if opts.Model != "" {
-		args = append(args, "--model", o.MapModel(opts.Model))
-	}
-
-	// Set agent (permission mode equivalent)
-	flag, value := o.MapPermission(opts.Permission)
-	args = append(args, flag, value)
-
-	// Pass prompt via --prompt flag
-	if opts.Prompt != "" {
-		args = append(args, "--prompt", opts.Prompt)
-	}
-
-	args = append(args, opts.PassthroughArgs...)
+	spec := opencodeInteractiveSpec(opts)
 
 	// Build cancellation context (external context + optional timeout)
 	baseCtx := opts.Context
@@ -221,7 +246,7 @@ func (o *OpenCodeProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("opencode", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir

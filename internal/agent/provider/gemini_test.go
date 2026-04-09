@@ -25,7 +25,7 @@ func TestGeminiProvider_MapModel(t *testing.T) {
 		{"large", "gemini-2.5-pro"},
 		{"opus", "gemini-2.5-pro"},
 		{"gemini-2.0-flash", "gemini-2.0-flash"}, // pass-through
-		{"custom-model", "custom-model"},          // pass-through
+		{"custom-model", "custom-model"},         // pass-through
 	}
 
 	for _, tc := range tests {
@@ -46,10 +46,10 @@ func TestGeminiProvider_MapPermission(t *testing.T) {
 		wantFlag  string
 		wantValue string
 	}{
-		{PermissionAcceptEdits, "", ""},
-		{PermissionPlan, "--sandbox", ""},
-		{PermissionBypass, "--yolo", ""},
-		{PermissionMode("unknown"), "", ""},
+		{PermissionAcceptEdits, "--approval-mode", "auto_edit"},
+		{PermissionPlan, "--approval-mode", "plan"},
+		{PermissionBypass, "--approval-mode", "yolo"},
+		{PermissionMode("unknown"), "--approval-mode", "auto_edit"},
 	}
 
 	for _, tc := range tests {
@@ -99,13 +99,13 @@ func TestGeminiHeadlessArgs_Permission_Bypass(t *testing.T) {
 	args := geminiHeadlessArgs(opts)
 
 	found := false
-	for _, a := range args {
-		if a == "--yolo" {
+	for i, a := range args {
+		if a == "--approval-mode" && i+1 < len(args) && args[i+1] == "yolo" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected --yolo in args for PermissionBypass, got: %v", args)
+		t.Errorf("expected --approval-mode yolo in args for PermissionBypass, got: %v", args)
 	}
 }
 
@@ -114,24 +114,28 @@ func TestGeminiHeadlessArgs_Permission_Plan(t *testing.T) {
 	args := geminiHeadlessArgs(opts)
 
 	found := false
-	for _, a := range args {
-		if a == "--sandbox" {
+	for i, a := range args {
+		if a == "--approval-mode" && i+1 < len(args) && args[i+1] == "plan" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected --sandbox in args for PermissionPlan, got: %v", args)
+		t.Errorf("expected --approval-mode plan in args for PermissionPlan, got: %v", args)
 	}
 }
 
-func TestGeminiHeadlessArgs_Permission_AcceptEdits_NoFlag(t *testing.T) {
+func TestGeminiHeadlessArgs_Permission_AcceptEdits(t *testing.T) {
 	opts := RunOptions{Prompt: "task", Permission: PermissionAcceptEdits}
 	args := geminiHeadlessArgs(opts)
 
-	for _, a := range args {
-		if a == "--yolo" || a == "--sandbox" {
-			t.Errorf("unexpected permission flag %q for PermissionAcceptEdits: %v", a, args)
+	found := false
+	for i, a := range args {
+		if a == "--approval-mode" && i+1 < len(args) && args[i+1] == "auto_edit" {
+			found = true
 		}
+	}
+	if !found {
+		t.Errorf("expected --approval-mode auto_edit in args for PermissionAcceptEdits, got: %v", args)
 	}
 }
 

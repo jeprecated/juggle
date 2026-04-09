@@ -676,12 +676,12 @@ func TestCodexProvider_MapModel(t *testing.T) {
 		input string
 		want  string
 	}{
-		{"small", "o4-mini"},
-		{"haiku", "o4-mini"},
-		{"medium", "o4-mini"},
-		{"sonnet", "o4-mini"},
-		{"large", "o3"},
-		{"opus", "o3"},
+		{"small", ""},
+		{"haiku", ""},
+		{"medium", ""},
+		{"sonnet", ""},
+		{"large", ""},
+		{"opus", ""},
 		{"o3", "o3"},           // pass-through
 		{"gpt-4.1", "gpt-4.1"}, // pass-through
 	}
@@ -704,10 +704,10 @@ func TestCodexProvider_MapPermission(t *testing.T) {
 		wantFlag  string
 		wantValue string
 	}{
-		{PermissionAcceptEdits, "--approval-mode", "auto-edit"},
-		{PermissionPlan, "--approval-mode", "suggest"},
-		{PermissionBypass, "--approval-mode", "full-auto"},
-		{PermissionMode("unknown"), "--approval-mode", "auto-edit"},
+		{PermissionAcceptEdits, "--full-auto", ""},
+		{PermissionPlan, "--sandbox", "read-only"},
+		{PermissionBypass, "--dangerously-bypass-approvals-and-sandbox", ""},
+		{PermissionMode("unknown"), "--full-auto", ""},
 	}
 
 	for _, tc := range tests {
@@ -727,15 +727,8 @@ func TestCodexHeadlessArgs_Basic(t *testing.T) {
 	opts := RunOptions{Prompt: "do the thing"}
 	args := codexHeadlessArgs(opts)
 
-	// Must contain --quiet
-	foundQuiet := false
-	for _, a := range args {
-		if a == "--quiet" {
-			foundQuiet = true
-		}
-	}
-	if !foundQuiet {
-		t.Errorf("expected --quiet in headless args, got: %v", args)
+	if len(args) < 2 || args[0] != "exec" {
+		t.Fatalf("expected headless args to start with exec, got: %v", args)
 	}
 
 	// Prompt must be last arg
@@ -745,7 +738,7 @@ func TestCodexHeadlessArgs_Basic(t *testing.T) {
 }
 
 func TestCodexHeadlessArgs_Model(t *testing.T) {
-	opts := RunOptions{Prompt: "task", Model: "large"}
+	opts := RunOptions{Prompt: "task", Model: "o3"}
 	args := codexHeadlessArgs(opts)
 
 	found := false
@@ -759,18 +752,55 @@ func TestCodexHeadlessArgs_Model(t *testing.T) {
 	}
 }
 
+func TestCodexHeadlessArgs_GenericModelOmitsModelFlag(t *testing.T) {
+	opts := RunOptions{Prompt: "task", Model: "sonnet"}
+	args := codexHeadlessArgs(opts)
+
+	for _, a := range args {
+		if a == "--model" {
+			t.Fatalf("expected no --model flag for generic codex model alias, got: %v", args)
+		}
+	}
+}
+
 func TestCodexHeadlessArgs_Permission(t *testing.T) {
 	opts := RunOptions{Prompt: "task", Permission: PermissionBypass}
 	args := codexHeadlessArgs(opts)
 
 	found := false
-	for i, a := range args {
-		if a == "--approval-mode" && i+1 < len(args) && args[i+1] == "full-auto" {
+	for _, a := range args {
+		if a == "--dangerously-bypass-approvals-and-sandbox" {
 			found = true
 		}
 	}
 	if !found {
-		t.Errorf("expected --approval-mode full-auto in args, got: %v", args)
+		t.Errorf("expected dangerous bypass flag in args, got: %v", args)
+	}
+}
+
+func TestOpenCodeHeadlessArgs_PassthroughBeforePrompt(t *testing.T) {
+	opts := RunOptions{
+		Prompt:          "task",
+		PassthroughArgs: []string{"--format", "json"},
+	}
+	args := opencodeHeadlessArgs(opts)
+
+	n := len(args)
+	if n < 4 {
+		t.Fatalf("expected at least 4 args, got %d: %v", n, args)
+	}
+	if args[n-1] != "task" {
+		t.Fatalf("expected prompt as last arg, got: %v", args)
+	}
+
+	found := false
+	for i, a := range args[:n-1] {
+		if a == "--format" && i+1 < n-1 && args[i+1] == "json" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected passthrough args before prompt, got: %v", args)
 	}
 }
 
@@ -796,6 +826,32 @@ func TestCodexHeadlessArgs_PassthroughArgs(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected --extra val in args before prompt, got: %v", args)
+	}
+}
+
+func TestCodexHeadlessSpec_UsesExecSubcommand(t *testing.T) {
+	spec := codexHeadlessSpec(RunOptions{Prompt: "task"})
+	if spec.Binary != "codex" {
+		t.Fatalf("Binary = %q, want codex", spec.Binary)
+	}
+	if len(spec.Args) == 0 || spec.Args[0] != "exec" {
+		t.Fatalf("expected exec subcommand in spec args, got: %v", spec.Args)
+	}
+	if spec.PromptStdin {
+		t.Fatalf("expected codex headless prompt to be positional, not stdin")
+	}
+}
+
+func TestClaudeHeadlessSpec_UsesPromptStdin(t *testing.T) {
+	spec := claudeHeadlessSpec(RunOptions{Prompt: "task"})
+	if spec.Binary != "claude" {
+		t.Fatalf("Binary = %q, want claude", spec.Binary)
+	}
+	if !spec.PromptStdin {
+		t.Fatal("expected claude headless prompt to be sent over stdin")
+	}
+	if spec.Prompt != "task" {
+		t.Fatalf("Prompt = %q, want task", spec.Prompt)
 	}
 }
 

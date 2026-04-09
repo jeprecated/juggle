@@ -543,6 +543,10 @@ func run(cmd *cobra.Command, args []string) error {
 		stderr = os.Stderr
 	}
 
+	if cfg.DryRun {
+		return Run(cfg)
+	}
+
 	// Set up signal handling: first signal = graceful shutdown, second = force kill
 	shutdown := make(chan struct{})
 	var shutdownOnce sync.Once
@@ -730,6 +734,10 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	stderr := cfg.Stderr
 	if stderr == nil {
 		stderr = os.Stderr
+	}
+
+	if cfg.DryRun {
+		return Run(cfg)
 	}
 
 	// Set up signal handling: first signal = graceful shutdown, second = force kill
@@ -928,6 +936,7 @@ func RunLoop(cfg Config) error {
 		start := time.Now()
 
 		prompt := BuildPrompt(cfg.Content, i, max)
+		printVerboseProviderCommand(cfg, prompt)
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, "", -1)...)
 

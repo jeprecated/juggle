@@ -97,6 +97,34 @@ func TestRun_DryRun(t *testing.T) {
 	}
 }
 
+func TestRunLoop_VerboseShowsProviderCommand(t *testing.T) {
+	var stderr bytes.Buffer
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+	cfg := Config{
+		Content:    "fix the tests",
+		Iterations: 1,
+		Verbose:    true,
+		Provider:   "codex",
+		Model:      "sonnet",
+		Runner:     mock,
+		Stderr:     &stderr,
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stderr.String()
+	if !strings.Contains(out, "provider command:") {
+		t.Fatalf("expected provider command in verbose output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "codex exec --full-auto <prompt>") {
+		t.Fatalf("expected codex command preview in verbose output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "\n    prompt:\n") {
+		t.Fatalf("expected prompt block in verbose output, got:\n%s", out)
+	}
+}
+
 func TestRun_WorkDirNotExist(t *testing.T) {
 	cfg := Config{
 		Content: "do work",

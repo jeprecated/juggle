@@ -330,6 +330,7 @@ func runWatchTask(cfg Config, taskFile string, stats *runStats) error {
 		}
 
 		prompt := BuildWatchPrompt(string(contents), cfg.Content, taskRelPath, i, max)
+		printVerboseProviderCommand(cfg, prompt)
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, taskFile, -1)...)
 

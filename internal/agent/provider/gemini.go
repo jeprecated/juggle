@@ -37,15 +37,17 @@ func (g *GeminiProvider) MapModel(canonical string) string {
 }
 
 // MapPermission converts PermissionMode to Gemini CLI flags.
-// Gemini uses --yolo to bypass confirmations and --sandbox for restricted mode.
+// Gemini exposes approval policy directly via --approval-mode.
 func (g *GeminiProvider) MapPermission(mode PermissionMode) (flag, value string) {
 	switch mode {
 	case PermissionBypass:
-		return "--yolo", ""
+		return "--approval-mode", "yolo"
 	case PermissionPlan:
-		return "--sandbox", ""
+		return "--approval-mode", "plan"
+	case PermissionAcceptEdits:
+		return "--approval-mode", "auto_edit"
 	default:
-		return "", ""
+		return "--approval-mode", "auto_edit"
 	}
 }
 
@@ -68,9 +70,13 @@ func geminiHeadlessArgs(opts RunOptions) []string {
 	}
 
 	p := NewGeminiProvider()
-	flag, _ := p.MapPermission(opts.Permission)
+	flag, value := p.MapPermission(opts.Permission)
 	if flag != "" {
-		args = append(args, flag)
+		if value != "" {
+			args = append(args, flag, value)
+		} else {
+			args = append(args, flag)
+		}
 	}
 
 	args = append(args, opts.PassthroughArgs...)
@@ -79,6 +85,37 @@ func geminiHeadlessArgs(opts RunOptions) []string {
 	args = append(args, "-p", opts.Prompt)
 
 	return args
+}
+
+func geminiHeadlessSpec(opts RunOptions) commandSpec {
+	return commandSpec{
+		Binary: "gemini",
+		Args:   geminiHeadlessArgs(opts),
+		Prompt: opts.Prompt,
+	}
+}
+
+func geminiInteractiveSpec(opts RunOptions) commandSpec {
+	args := []string{}
+
+	if opts.Model != "" {
+		args = append(args, "--model", NewGeminiProvider().MapModel(opts.Model))
+	}
+
+	flag, value := NewGeminiProvider().MapPermission(opts.Permission)
+	args = appendFlag(args, flag, value)
+
+	args = append(args, opts.PassthroughArgs...)
+
+	if opts.Prompt != "" {
+		args = append(args, opts.Prompt)
+	}
+
+	return commandSpec{
+		Binary: "gemini",
+		Args:   args,
+		Prompt: opts.Prompt,
+	}
 }
 
 // runHeadless executes Gemini in headless mode (-p flag, captured output)
@@ -101,7 +138,7 @@ func (g *GeminiProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		fmt.Fprintf(os.Stderr, "warning: --mcp-config is not supported by the gemini provider and will be ignored\n")
 	}
 
-	args := geminiHeadlessArgs(opts)
+	spec := geminiHeadlessSpec(opts)
 
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -116,7 +153,7 @@ func (g *GeminiProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("gemini", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
@@ -188,22 +225,7 @@ func (g *GeminiProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 func (g *GeminiProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 	result := &RunResult{}
 
-	args := []string{}
-
-	if opts.Model != "" {
-		args = append(args, "--model", g.MapModel(opts.Model))
-	}
-
-	flag, _ := g.MapPermission(opts.Permission)
-	if flag != "" {
-		args = append(args, flag)
-	}
-
-	args = append(args, opts.PassthroughArgs...)
-
-	if opts.Prompt != "" {
-		args = append(args, opts.Prompt)
-	}
+	spec := geminiInteractiveSpec(opts)
 
 	baseCtx := opts.Context
 	if baseCtx == nil {
@@ -218,7 +240,7 @@ func (g *GeminiProvider) runInteractive(opts RunOptions) (*RunResult, error) {
 		ctx = baseCtx
 	}
 
-	cmd := exec.Command("gemini", args...)
+	cmd := commandForSpec(spec)
 	setProcessGroup(cmd)
 	if opts.WorkingDir != "" {
 		cmd.Dir = opts.WorkingDir
