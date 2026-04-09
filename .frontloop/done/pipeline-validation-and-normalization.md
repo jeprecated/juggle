@@ -35,5 +35,23 @@ This includes implicit dependencies, event validation, and v1 invariants.
 ## Implementation Notes
 
 - Keep normalization separate from execution so dry-run, export, and future GUI use the same resolved graph
-- This task is where the “default to previous node” rule should be encoded explicitly
+- This task is where the "default to previous node" rule should be encoded explicitly
 
+## Completion Summary
+
+Added `internal/pipeline/validate.go` with `Normalize(*Pipeline) error` — a single function
+covering both normalization and validation called by `runPipelineCmd` in `internal/cli/pipeline.go`.
+
+**Normalization**: walks nodes in order; if a node has no explicit `After` and is not `Parallel`,
+sets `After = [prevNode.Name]`.
+
+**Validation** (in order):
+1. Unique node names
+2. Kind payload consistency (agent→AgentSpec, cmd→CmdSpec)
+3. Event name validity (when non-empty)
+4. After targets exist and are not forward references
+5. DFS cycle detection
+6. v1 invariant: exactly one `agent` node with `event=loop-body`
+
+Tests in `internal/pipeline/validate_test.go` cover all acceptance criteria (16 test functions).
+All 873 tests pass.
