@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/ohare93/juggle/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
@@ -48,7 +49,12 @@ func init() {
 	rootCmd.AddCommand(pipelineCmd)
 }
 
-func runPipelineCmd(_ *cobra.Command, _ []string) error {
-	fmt.Fprintln(os.Stderr, "juggle pipeline: execution not yet implemented")
+func runPipelineCmd(_ *cobra.Command, args []string) error {
+	p, err := pipeline.ParseArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "juggle pipeline: %v\n", err)
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "juggle pipeline: parsed %d node(s); execution not yet implemented\n", len(p.Nodes))
 	return nil
 }
