@@ -1,0 +1,35 @@
+iterations = 10
+max_parallel_steps = 4
+
+[defaults]
+provider = "claude"
+model = "sonnet"
+
+[[agent]]
+name = "Setup"
+prompt = "@setup.md"
+event = "run-start"
+model = "haiku"
+
+[[agent]]
+name = "Gather"
+prompt = "inspect the codebase and summarize context"
+event = "run-start"
+model = "opus"
+
+[[agent]]
+name = "Implement"
+prompt = "@task.md"
+event = "loop-body"
+provider = "codex"
+model = "gpt-5.4"
+
+[[cmd]]
+name = "Commit"
+command = "git add -A && git commit -m 'work done'"
+event = "loop-end"
+
+[[cmd]]
+name = "Notify"
+command = "notify-send 'run complete'"
+event = "run-end"

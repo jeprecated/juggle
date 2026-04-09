@@ -8,16 +8,19 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var pipelineFile string
+
 var pipelineCmd = &cobra.Command{
-	Use:   "pipeline <node> [node...]",
+	Use:   "pipeline [--file <path>] [<node>...]",
 	Short: "Run an agent pipeline defined as ordered agent and cmd nodes",
 	Long: `Run a pipeline of agent and cmd nodes with lifecycle events, dependencies,
 and failure policies.
 
-Each node is declared with either the 'agent' or 'cmd' keyword followed by
-a name, a prompt or command, and optional node flags.
+Load a pipeline from a TOML file:
 
-Example:
+  juggle pipeline --file pipeline.toml
+
+Or define nodes inline:
 
   juggle pipeline \
     agent "Setup" @setup.md --event run-start --model haiku \
@@ -45,16 +48,29 @@ Shared node flags:
 }
 
 func init() {
+	pipelineCmd.Flags().StringVarP(&pipelineFile, "file", "f", "", "load pipeline from a TOML file")
 	pipelineCmd.SetHelpFunc(groupedHelp)
 	rootCmd.AddCommand(pipelineCmd)
 }
 
-func runPipelineCmd(_ *cobra.Command, args []string) error {
-	p, err := pipeline.ParseArgs(args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "juggle pipeline: %v\n", err)
-		return err
+func runPipelineCmd(cmd *cobra.Command, args []string) error {
+	var p *pipeline.Pipeline
+	var err error
+
+	if pipelineFile != "" {
+		p, err = pipeline.LoadFile(pipelineFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "juggle pipeline: %v\n", err)
+			return err
+		}
+	} else {
+		p, err = pipeline.ParseArgs(args)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "juggle pipeline: %v\n", err)
+			return err
+		}
 	}
+
 	fmt.Fprintf(os.Stderr, "juggle pipeline: parsed %d node(s); execution not yet implemented\n", len(p.Nodes))
 	return nil
 }
