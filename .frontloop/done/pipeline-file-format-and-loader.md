@@ -31,3 +31,15 @@ Implement a persisted pipeline file format and loader so pipelines can be stored
 - Keep the loader focused on decoding and normalization, not execution
 - Preserve the long-term possibility of optional GUI metadata in the file format
 
+## Completion Summary
+
+Added TOML pipeline file loader and `--file` flag to the pipeline subcommand.
+
+Files changed:
+- `internal/pipeline/loader.go` — `LoadFile` and `LoadBytes` functions; raw TOML intermediaries (`rawAgent`, `rawCmd`, `fileDoc`); conversion to canonical `Pipeline` model with validation
+- `internal/pipeline/loader_test.go` — 20 tests covering error cases, single/mixed nodes, top-level metadata, defaults, all agent and cmd fields, fixture file loading
+- `internal/pipeline/testdata/valid.toml` — example fixture matching the design doc
+- `internal/cli/pipeline.go` — added `--file / -f` flag; routes to `LoadFile` when set, falls back to inline `ParseArgs`
+
+V1 ordering note: TOML's `[[agent]]` and `[[cmd]]` are separate arrays, so agents appear before cmds in pipeline order. Users can use `after` for explicit cross-kind dependencies.
+
