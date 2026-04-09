@@ -71,6 +71,11 @@ func runPipelineCmd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	if err := pipeline.Normalize(p); err != nil {
+		fmt.Fprintf(os.Stderr, "juggle pipeline: %v\n", err)
+		return err
+	}
+
 	fmt.Fprintf(os.Stderr, "juggle pipeline: parsed %d node(s); execution not yet implemented\n", len(p.Nodes))
 	return nil
 }
