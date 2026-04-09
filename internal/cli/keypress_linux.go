@@ -53,13 +53,10 @@ func makeRaw(fd uintptr) (*syscall.Termios, error) {
 	}
 
 	newState := oldState
-	// cfmakeraw: disable echo, canonical mode, signals, and output processing
-	newState.Iflag &^= syscall.IGNBRK | syscall.BRKINT | syscall.PARMRK | syscall.ISTRIP |
-		syscall.INLCR | syscall.IGNCR | syscall.ICRNL | syscall.IXON
-	newState.Oflag &^= syscall.OPOST
-	newState.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.ISIG | syscall.IEXTEN
-	newState.Cflag &^= syscall.CSIZE | syscall.PARENB
-	newState.Cflag |= syscall.CS8
+	// Minimal raw mode: disable echo and canonical (buffered) input so we can
+	// read single keypresses. Keep ISIG so Ctrl+C still generates SIGINT, and
+	// leave Oflag/Cflag untouched so terminal output behaves normally.
+	newState.Lflag &^= syscall.ECHO | syscall.ECHONL | syscall.ICANON | syscall.IEXTEN
 	newState.Cc[syscall.VMIN] = 1
 	newState.Cc[syscall.VTIME] = 0
 
