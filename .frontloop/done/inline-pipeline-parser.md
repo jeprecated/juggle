@@ -41,3 +41,11 @@ This task should convert CLI input into the canonical pipeline representation, b
 - Standard Cobra subcommand parsing likely will not be enough by itself; use a custom parser after entering `pipeline` mode
 - Keep parsing separate from validation so later tasks can reuse it for file-based specs
 
+## Completion Summary
+
+Implemented `internal/pipeline/parser.go` with `ParseArgs([]string) (*Pipeline, error)`:
+- `splitIntoBlocks` groups raw args by `agent`/`cmd` delimiters
+- `parseNodeBlock` uses a per-node `pflag.FlagSet` with shared flags registered on all nodes and kind-specific flags registered only for the matching kind — unknown/misplaced flags produce pflag errors automatically
+- Timeout is parsed via `time.ParseDuration`; multi-word positional args are joined with spaces
+- `internal/cli/pipeline.go` updated to call the parser and report node count
+- 43 new tests in `internal/pipeline/parser_test.go` covering all acceptance criteria; full suite green
