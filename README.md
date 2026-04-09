@@ -152,6 +152,7 @@ go install github.com/ohare93/juggle/cmd/juggle@latest
 - **Watch mode** -- process task files from a directory or glob pattern, with parallel workers (`juggle --watch tasks/ready/ @worker-rules.md`)
 - **Lifecycle hooks** -- run shell commands before/after each iteration, stop on a condition
 - **Phase agents** -- run separate agent sessions before/after the main loop or each iteration
+- **Pipeline** -- define ordered `agent` and `cmd` nodes with events, dependencies, conditions, and failure policies (`juggle pipeline --file pipeline.toml`)
 - **Config file** -- `juggle.toml` for project-level defaults
 - **JSONL logging** -- per-iteration token counts, cost estimates, and run summary
 - **Failure handling** -- stop, continue, or retry with backoff on agent failures

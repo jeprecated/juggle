@@ -170,3 +170,25 @@ All shell hooks and agent phase hooks receive these variables. Variables marked 
 | `--agent-post` | Returns an error after the loop |
 | Session hook (`PreToolUse`) | Non-zero exit blocks the tool call |
 | Session hook (all others) | Failure is logged as a warning |
+
+---
+
+## Pipeline Model
+
+The lifecycle hook flags above are the ergonomic surface. The underlying execution engine is a general pipeline scheduler — the same scheduler that drives `juggle pipeline`.
+
+Internally, each hook flag maps to a pipeline node:
+
+| Flag | Pipeline equivalent | Event |
+|------|--------------------|----|
+| `--agent-pre` | `agent ... --on-failure stop` | `run-start` |
+| `--agent-before` | `agent ... --on-failure stop` | `loop-start` |
+| `--cmd-before` | `cmd ... --on-failure stop` | `loop-start` |
+| *(main prompt)* | `agent ...` | `loop-body` |
+| `--cmd-after` | `cmd ... --on-failure continue` | `loop-end` |
+| `--agent-after` | `agent ... --on-failure continue` | `loop-end` |
+| `--agent-post` | `agent ... --on-failure stop` | `run-end` |
+
+When you need more than the fixed hook positions — multiple setup steps, per-node failure policies, explicit dependencies, or conditions — use `juggle pipeline` directly.
+
+See [docs/pipeline.md](docs/pipeline.md) for the full pipeline reference, inline CLI syntax, file format, and a migration example.
