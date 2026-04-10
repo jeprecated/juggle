@@ -26,17 +26,6 @@ var pipelineCmd = &cobra.Command{
 	Long: `Run a pipeline of agent and cmd nodes with lifecycle events, dependencies,
 and failure policies.
 
-Load a pipeline from a TOML file:
-
-  juggle pipeline --file pipeline.toml
-
-Or define nodes inline:
-
-  juggle pipeline \
-    agent "Setup" @setup.md --event run-start --model haiku \
-    agent "Implement" @task.md --event loop-body \
-    cmd "Commit" "git add -A && git commit -m done" --event loop-end
-
 Node kinds:
   agent   Run an AI agent for this step
   cmd     Run a shell command for this step
@@ -50,6 +39,14 @@ Shared node flags:
   --retries     Retry count when on-failure=retry
   --timeout     Per-node timeout
   --workdir     Working directory for this node`,
+	Example: `  # Load a pipeline from a TOML file
+  juggle pipeline --file pipeline.toml
+
+  # Define nodes inline
+  juggle pipeline \
+    agent "Setup" @setup.md --event run-start --model haiku \
+    agent "Implement" @task.md --event loop-body \
+    cmd "Commit" "git add -A && git commit -m done" --event loop-end`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
