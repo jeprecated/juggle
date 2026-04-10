@@ -59,6 +59,12 @@ func retryBackoffFor(attempt int, overrides []time.Duration) time.Duration {
 // errCostGuard is returned by runWatchTask when --max-cost threshold is exceeded.
 var errCostGuard = errors.New("cost guard triggered")
 
+// errRetryIteration is returned by runWatchTask when quota/rate limit requires retrying the same iteration.
+var errRetryIteration = errors.New("retry iteration (quota/rate limit)")
+
+// errFileGone is returned by runWatchTask when the task file no longer exists (agent completed it).
+var errFileGone = errors.New("task file completed")
+
 // Config holds all CLI configuration for a juggle run.
 type Config struct {
 	Content           string                  // Resolved prompt content (joined)
@@ -100,6 +106,7 @@ type Config struct {
 	PassthroughArgs   []string                // Extra flags passed verbatim to the agent CLI after juggle's own flags
 	AgentCmd          string                  // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
 	SystemPrompt      string                  // Optional system prompt appended to the agent's system prompt
+	RetryPrompt       string                  // Extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)
 	Workers           int                     // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
 	WorkDir           string                  // Working directory for agent spawning (empty = juggle's cwd)
 	Resume            bool                    // Resume from last completed iteration recorded in --log file
@@ -212,6 +219,7 @@ var flags struct {
 	retries         int
 	agentCmd        string
 	systemPrompt    string
+	retryPrompt     string
 	workdir         string
 	noConfig        bool
 	resume          bool
@@ -227,7 +235,7 @@ var watchFlags struct {
 func init() {
 	// pf holds shared flags inherited by all subcommands.
 	pf := rootCmd.PersistentFlags()
-	pf.IntVarP(&flags.iterations, "iterations", "n", 10, "max iterations (0 = unlimited)")
+	pf.IntVarP(&flags.iterations, "iterations", "n", 0, "max iterations (0 = unlimited)")
 	pf.StringVar(&flags.model, "model", "sonnet", "model name")
 	pf.StringVar(&flags.provider, "provider", "claude", "provider name")
 	pf.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
@@ -261,6 +269,7 @@ func init() {
 	pf.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 	pf.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
 	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
+	pf.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
@@ -273,7 +282,7 @@ func init() {
 
 	// Assign visible flags to help groups. Hidden flags (fuzz, interactive,
 	// show-thinking, provider) are intentionally omitted here.
-	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "resume"} {
+	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt", "resume"} {
 		setFlagGroup(pf, name, "Loop Control")
 	}
 	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "workdir"} {
@@ -469,6 +478,15 @@ func run(cmd *cobra.Command, args []string) error {
 		systemPrompt = resolved1[0]
 	}
 
+	var retryPrompt string
+	if flags.retryPrompt != "" {
+		resolvedRp, errRp := ResolveArgs([]string{flags.retryPrompt})
+		if errRp != nil {
+			return fmt.Errorf("--retry-prompt: %w", errRp)
+		}
+		retryPrompt = resolvedRp[0]
+	}
+
 	if flags.mcpConfig != "" {
 		if _, err := os.Stat(flags.mcpConfig); err != nil {
 			return fmt.Errorf("--mcp-config: file not found: %s", flags.mcpConfig)
@@ -518,6 +536,7 @@ func run(cmd *cobra.Command, args []string) error {
 		PassthroughArgs:   passthroughArgs,
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
+		RetryPrompt:       retryPrompt,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 	}
@@ -577,11 +596,8 @@ func run(cmd *cobra.Command, args []string) error {
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		waitKeypress := StartKeypressListener(tty, trigger, color, stderr)
-		defer func() {
-			ttyCleanup()   // restore terminal + close tty (unblocks goroutine Read)
-			waitKeypress() // wait for goroutine to exit
-		}()
+		_ = StartKeypressListener(tty, trigger, color, stderr)
+		defer ttyCleanup()
 	}
 
 	return Run(cfg)
@@ -659,6 +675,15 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		systemPrompt = resolved1[0]
 	}
 
+	var retryPrompt string
+	if flags.retryPrompt != "" {
+		resolvedRp, errRp := ResolveArgs([]string{flags.retryPrompt})
+		if errRp != nil {
+			return fmt.Errorf("--retry-prompt: %w", errRp)
+		}
+		retryPrompt = resolvedRp[0]
+	}
+
 	if flags.mcpConfig != "" {
 		if _, err := os.Stat(flags.mcpConfig); err != nil {
 			return fmt.Errorf("--mcp-config: file not found: %s", flags.mcpConfig)
@@ -711,6 +736,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		PassthroughArgs:   passthroughArgs,
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
+		RetryPrompt:       retryPrompt,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 	}
@@ -767,11 +793,8 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		waitKeypress := StartKeypressListener(tty, trigger, color, stderr)
-		defer func() {
-			ttyCleanup()
-			waitKeypress()
-		}()
+		_ = StartKeypressListener(tty, trigger, color, stderr)
+		defer ttyCleanup()
 	}
 
 	return Run(cfg)
@@ -985,7 +1008,11 @@ func RunLoop(cfg Config) error {
 
 		start := time.Now()
 
-		prompt := BuildPrompt(cfg.Content, i, max)
+		content := cfg.Content
+			if retryCount > 0 && cfg.RetryPrompt != "" {
+				content = cfg.RetryPrompt + "\n\n" + content
+			}
+			prompt := BuildPrompt(content, i, max)
 		printVerboseProviderCommand(cfg, prompt)
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, "", -1)...)
@@ -1289,7 +1316,7 @@ func formatWaitDuration(d time.Duration) string {
 
 func maxStr(max int) string {
 	if max == 0 {
-		return "unlimited"
+		return "∞"
 	}
 	return fmt.Sprintf("%d", max)
 }

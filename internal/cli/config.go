@@ -60,6 +60,7 @@ type FileConfig struct {
 	MCPConfig    *string  `toml:"mcp_config"`
 	OnFailure    *string  `toml:"on_failure"`
 	Retries      *int     `toml:"retries"`
+	RetryPrompt  *string  `toml:"retry_prompt"`
 	SystemPrompt *string  `toml:"system_prompt"`
 	Workers      *int     `toml:"workers"`
 	WorkDir      *string  `toml:"workdir"`
@@ -200,6 +201,9 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 	}
 	if cfg.Retries != nil {
 		set("retries", func() { flags.retries = *cfg.Retries })
+	}
+	if cfg.RetryPrompt != nil {
+		set("retry-prompt", func() { flags.retryPrompt = *cfg.RetryPrompt })
 	}
 	if cfg.SystemPrompt != nil {
 		set("system-prompt", func() { flags.systemPrompt = *cfg.SystemPrompt })

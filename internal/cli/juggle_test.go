@@ -43,10 +43,10 @@ func TestBuildPrompt(t *testing.T) {
 		}
 	})
 
-	t.Run("unlimited iterations", func(t *testing.T) {
+	t.Run("infinite iterations", func(t *testing.T) {
 		got := BuildPrompt("content", 3, 0)
-		if !strings.Contains(got, "iteration 3 of unlimited") {
-			t.Error("expected 'unlimited' for max=0")
+		if !strings.Contains(got, "iteration 3 of ∞") {
+			t.Error("expected infinity symbol for max=0")
 		}
 	})
 
@@ -1377,5 +1377,89 @@ func TestRunLoop_OnFailureRetry_ExhaustionIncrementsFailureCounter(t *testing.T)
 	}
 	if len(mock.Calls) != 6 {
 		t.Errorf("expected 6 calls (3 per iter × 2 iters), got %d", len(mock.Calls))
+	}
+}
+
+func TestRunLoop_RetryPrompt(t *testing.T) {
+	// iteration 1: fail, retry with injected retry-prompt, succeed
+	// iteration 2: succeed (no retry prompt)
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1}, // iter 1, attempt 1 (fail)
+		&agent.RunResult{ExitCode: 0}, // iter 1, retry 1 (success)
+		&agent.RunResult{ExitCode: 0}, // iter 2 (success)
+	)
+	cfg := Config{
+		Content:       "base task",
+		Iterations:    2,
+		OnFailure:     OnFailureRetry,
+		Retries:       2,
+		MaxFailures:   5,
+		RetryPrompt:   "recover and continue",
+		RetryBackoffs: []time.Duration{time.Millisecond, time.Millisecond},
+		Runner:        mock,
+		Stderr:        &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(mock.Calls))
+	}
+
+	// First call: original prompt only (no retry prompt)
+	first := mock.Calls[0].Prompt
+	if strings.Contains(first, "recover and continue") {
+		t.Error("retry prompt should NOT be in first attempt")
+	}
+	if !strings.Contains(first, "base task") {
+		t.Error("base content should be in first attempt")
+	}
+
+	// Second call (retry): retry prompt prepended
+	second := mock.Calls[1].Prompt
+	if !strings.Contains(second, "recover and continue") {
+		t.Error("retry prompt should be in retry attempt")
+	}
+	if !strings.Contains(second, "base task") {
+		t.Error("base content should still be in retry attempt")
+	}
+	// Verify ordering: retry prompt comes before base content
+	retryIdx := strings.Index(second, "recover and continue")
+	baseIdx := strings.Index(second, "base task")
+	if retryIdx >= baseIdx {
+		t.Error("retry prompt should appear before base content")
+	}
+
+	// Third call: original prompt only (new iteration, no retry)
+	third := mock.Calls[2].Prompt
+	if strings.Contains(third, "recover and continue") {
+		t.Error("retry prompt should NOT be in new iteration")
+	}
+}
+
+func TestRunLoop_RetryPrompt_EmptyWhenNotSet(t *testing.T) {
+	// No RetryPrompt set — retry should work normally without injection
+	mock := agent.NewMockRunner(
+		&agent.RunResult{ExitCode: 1}, // fail
+		&agent.RunResult{ExitCode: 0}, // retry success
+	)
+	cfg := Config{
+		Content:       "task",
+		Iterations:    1,
+		OnFailure:     OnFailureRetry,
+		Retries:       2,
+		RetryPrompt:   "", // empty — no retry prompt
+		RetryBackoffs: []time.Duration{time.Millisecond},
+		Runner:        mock,
+		Stderr:        &bytes.Buffer{},
+	}
+	err := RunLoop(cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Both prompts should be identical (just "task" + iteration footer)
+	if mock.Calls[0].Prompt != mock.Calls[1].Prompt {
+		t.Errorf("prompts should be identical without retry-prompt, got:\n  %q\n  %q", mock.Calls[0].Prompt, mock.Calls[1].Prompt)
 	}
 }
