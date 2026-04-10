@@ -1,14 +1,24 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 
+	"github.com/ohare93/juggle/internal/agent"
+	"github.com/ohare93/juggle/internal/agent/provider"
 	"github.com/ohare93/juggle/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
 var pipelineFile string
+
+// pipelineTestRunner is injectable for tests (nil = build from flags).
+var pipelineTestRunner agent.Runner
 
 var pipelineCmd = &cobra.Command{
 	Use:   "pipeline [--file <path>] [<node>...]",
@@ -57,6 +67,10 @@ func runPipelineCmd(cmd *cobra.Command, args []string) error {
 	var p *pipeline.Pipeline
 	var err error
 
+	if pipelineFile != "" && len(args) > 0 {
+		return fmt.Errorf("cannot use --file with inline node arguments")
+	}
+
 	if pipelineFile != "" {
 		p, err = pipeline.LoadFile(pipelineFile)
 		if err != nil {
@@ -76,6 +90,69 @@ func runPipelineCmd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Fprintf(os.Stderr, "juggle pipeline: parsed %d node(s); execution not yet implemented\n", len(p.Nodes))
-	return nil
+	runner, err := resolvePipelineRunner()
+	if err != nil {
+		return err
+	}
+
+	workdir := flags.workdir
+	if workdir == "" {
+		if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+			workdir = cwd
+		}
+	}
+
+	shutdown := make(chan struct{})
+	var shutdownOnce sync.Once
+	forceCtx, forceCancel := context.WithCancel(context.Background())
+	defer forceCancel()
+
+	sigCh := make(chan os.Signal, 2)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	go func() {
+		<-sigCh
+		shutdownOnce.Do(func() { close(shutdown) })
+		<-sigCh
+		forceCancel()
+		time.Sleep(200 * time.Millisecond)
+		os.Exit(130)
+	}()
+
+	return executePipeline(p, pipeline.ExecutorConfig{
+		Runner:        runner,
+		RunnerFactory: makeRunnerFactory(flags.agentCmd),
+		Stdout:        os.Stdout,
+		Stderr:        os.Stderr,
+		ForceCtx:      forceCtx,
+		Shutdown:      shutdown,
+		WorkDir:       workdir,
+		RunID:         generateRunID(),
+	})
+}
+
+// resolvePipelineRunner returns the runner to use for pipeline execution.
+// In tests, pipelineTestRunner can be set to bypass provider flag resolution.
+func resolvePipelineRunner() (agent.Runner, error) {
+	if pipelineTestRunner != nil {
+		return pipelineTestRunner, nil
+	}
+	providerName := flags.provider
+	agentCmd := flags.agentCmd
+	if agentCmd != "" && providerName == "claude" {
+		providerName = "custom"
+	}
+	if provider.Type(providerName) == provider.TypeCustom {
+		if agentCmd == "" {
+			return nil, fmt.Errorf("--provider custom requires --agent-cmd")
+		}
+		return &agent.ProviderRunner{Provider: provider.GetCustom(agentCmd)}, nil
+	}
+	return &agent.ProviderRunner{Provider: provider.Get(provider.Type(providerName))}, nil
+}
+
+// executePipeline runs the pipeline with the given executor config.
+func executePipeline(p *pipeline.Pipeline, cfg pipeline.ExecutorConfig) error {
+	return pipeline.NewExecutor(p, cfg).Run()
 }
