@@ -15,7 +15,13 @@ import (
 
 // ExecutorConfig holds the dependencies and runtime settings for a pipeline execution.
 type ExecutorConfig struct {
-	Runner        agent.Runner
+	// Runner is the default agent runner used when no RunnerFactory is set or
+	// when a node has no provider specified.
+	Runner agent.Runner
+	// RunnerFactory resolves a Runner for a given provider name. When set, it is
+	// called for any agent node that has a non-empty Provider field (after
+	// pipeline defaults have been applied). If nil, Runner is used for all nodes.
+	RunnerFactory func(providerName string) (agent.Runner, error)
 	Stdout        io.Writer
 	Stderr        io.Writer
 	ForceCtx      context.Context
@@ -305,6 +311,19 @@ func (e *Executor) runNode(ctx context.Context, n Node, iteration int) error {
 	}
 }
 
+// resolveRunner returns the runner for an agent node. If the spec has a
+// non-empty Provider and RunnerFactory is configured, the factory is called.
+// Otherwise it falls back to the default Runner.
+func (e *Executor) resolveRunner(spec *AgentSpec) (agent.Runner, error) {
+	if spec.Provider != "" && e.cfg.RunnerFactory != nil {
+		return e.cfg.RunnerFactory(spec.Provider)
+	}
+	if e.cfg.Runner == nil {
+		return nil, fmt.Errorf("no runner configured and node has no provider")
+	}
+	return e.cfg.Runner, nil
+}
+
 // runAgentNode executes an agent-kind node using the configured Runner.
 func (e *Executor) runAgentNode(ctx context.Context, n Node, iteration int) error {
 	spec := n.Agent
@@ -338,7 +357,12 @@ func (e *Executor) runAgentNode(ctx context.Context, n Node, iteration int) erro
 		Context:         ctx,
 	}
 
-	result, err := e.cfg.Runner.Run(opts)
+	runner, err := e.resolveRunner(spec)
+	if err != nil {
+		return fmt.Errorf("resolve runner for node %q: %w", n.Name, err)
+	}
+
+	result, err := runner.Run(opts)
 	if err != nil {
 		return err
 	}

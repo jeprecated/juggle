@@ -839,6 +839,27 @@ func Run(cfg Config) error {
 	return RunLoop(cfg)
 }
 
+// makeRunnerFactory returns a factory that resolves a Runner for a given provider name.
+// agentCmd is the custom agent command template used when providerName is "custom".
+func makeRunnerFactory(agentCmd string) func(string) (agent.Runner, error) {
+	return func(providerName string) (agent.Runner, error) {
+		t := provider.Type(providerName)
+		if !t.IsValid() {
+			return nil, fmt.Errorf("unknown provider %q", providerName)
+		}
+		var p provider.Provider
+		if t == provider.TypeCustom {
+			if agentCmd == "" {
+				return nil, fmt.Errorf("provider 'custom' requires --agent-cmd")
+			}
+			p = provider.GetCustom(agentCmd)
+		} else {
+			p = provider.Get(t)
+		}
+		return &agent.ProviderRunner{Provider: p}, nil
+	}
+}
+
 // runViaPipeline converts cfg to a Pipeline and runs it through the executor.
 // Called by RunLoop when JUGGLE_USE_PIPELINE=1.
 func runViaPipeline(cfg Config) error {
@@ -848,6 +869,7 @@ func runViaPipeline(cfg Config) error {
 	}
 	execCfg := pipeline.ExecutorConfig{
 		Runner:        cfg.Runner,
+		RunnerFactory: makeRunnerFactory(cfg.AgentCmd),
 		Stdout:        cfg.Stdout,
 		Stderr:        cfg.Stderr,
 		ForceCtx:      cfg.ForceCtx,

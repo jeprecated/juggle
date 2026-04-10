@@ -633,3 +633,174 @@ func TestExecutor_Parallel_ShutdownCancelsRunning(t *testing.T) {
 		t.Errorf("expected cancellation within 2 seconds, took %v", elapsed)
 	}
 }
+
+// --- per-node provider dispatch tests ---
+
+func TestExecutor_PerNodeProvider_MixedProviders(t *testing.T) {
+	claudeRunner := agent.NewMockRunner(okResult())
+	codexRunner := agent.NewMockRunner(okResult())
+
+	factory := func(name string) (agent.Runner, error) {
+		switch name {
+		case "claude":
+			return claudeRunner, nil
+		case "codex":
+			return codexRunner, nil
+		default:
+			return nil, fmt.Errorf("unknown provider %q", name)
+		}
+	}
+
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:  "setup",
+			Kind:  pipeline.NodeKindAgent,
+			Event: pipeline.EventRunStart,
+			Agent: &pipeline.AgentSpec{Prompt: "setup work", Provider: "codex"},
+		},
+		pipeline.Node{
+			Name:  "main",
+			Kind:  pipeline.NodeKindAgent,
+			Event: pipeline.EventLoopBody,
+			Agent: &pipeline.AgentSpec{Prompt: "main work", Provider: "claude"},
+		},
+	)
+
+	cfg := pipeline.ExecutorConfig{
+		RunnerFactory: factory,
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
+		ForceCtx:      context.Background(),
+		RetryBackoffs: []time.Duration{0, 0, 0},
+	}
+
+	exec := pipeline.NewExecutor(p, cfg)
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(claudeRunner.Calls) != 1 {
+		t.Errorf("claudeRunner: expected 1 call, got %d", len(claudeRunner.Calls))
+	}
+	if len(codexRunner.Calls) != 1 {
+		t.Errorf("codexRunner: expected 1 call, got %d", len(codexRunner.Calls))
+	}
+}
+
+func TestExecutor_PerNodeProvider_FallbackToDefaults(t *testing.T) {
+	geminiRunner := agent.NewMockRunner(okResult())
+
+	factory := func(name string) (agent.Runner, error) {
+		if name == "gemini" {
+			return geminiRunner, nil
+		}
+		return nil, fmt.Errorf("unexpected provider %q", name)
+	}
+
+	p := &pipeline.Pipeline{
+		Iterations: 1,
+		Defaults:   pipeline.Defaults{Provider: "gemini"},
+		Nodes: []pipeline.Node{
+			{
+				Name:  "main",
+				Kind:  pipeline.NodeKindAgent,
+				Event: pipeline.EventLoopBody,
+				Agent: &pipeline.AgentSpec{Prompt: "work"},
+			},
+		},
+	}
+	if err := pipeline.Normalize(p); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+
+	cfg := pipeline.ExecutorConfig{
+		RunnerFactory: factory,
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
+		ForceCtx:      context.Background(),
+		RetryBackoffs: []time.Duration{0, 0, 0},
+	}
+
+	exec := pipeline.NewExecutor(p, cfg)
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(geminiRunner.Calls) != 1 {
+		t.Errorf("geminiRunner: expected 1 call, got %d", len(geminiRunner.Calls))
+	}
+}
+
+func TestExecutor_PerNodeProvider_FallbackToRunner(t *testing.T) {
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1, minAgentNode("main"))
+
+	cfg := pipeline.ExecutorConfig{
+		Runner:        runner,
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
+		ForceCtx:      context.Background(),
+		RetryBackoffs: []time.Duration{0, 0, 0},
+	}
+
+	exec := pipeline.NewExecutor(p, cfg)
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(runner.Calls) != 1 {
+		t.Errorf("runner: expected 1 call, got %d", len(runner.Calls))
+	}
+}
+
+func TestExecutor_PerNodeProvider_NilRunnerNoProviderError(t *testing.T) {
+	// RunnerFactory is set but Runner is nil and the node has no provider —
+	// resolveRunner must return an error rather than panic.
+	factory := func(name string) (agent.Runner, error) {
+		return agent.NewMockRunner(okResult()), nil
+	}
+
+	p := normalizedPipeline(t, 1, minAgentNode("main")) // no provider set
+
+	cfg := pipeline.ExecutorConfig{
+		RunnerFactory: factory,
+		// Runner intentionally nil
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
+		ForceCtx:      context.Background(),
+		RetryBackoffs: []time.Duration{0, 0, 0},
+	}
+
+	exec := pipeline.NewExecutor(p, cfg)
+	if err := exec.Run(); err == nil {
+		t.Fatal("expected error when runner is nil and node has no provider, got nil")
+	}
+}
+
+func TestExecutor_PerNodeProvider_UnknownProviderError(t *testing.T) {
+	factory := func(name string) (agent.Runner, error) {
+		return nil, fmt.Errorf("unknown provider %q", name)
+	}
+
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:  "main",
+			Kind:  pipeline.NodeKindAgent,
+			Event: pipeline.EventLoopBody,
+			Agent: &pipeline.AgentSpec{Prompt: "work", Provider: "bogus"},
+		},
+	)
+
+	cfg := pipeline.ExecutorConfig{
+		RunnerFactory: factory,
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
+		ForceCtx:      context.Background(),
+		RetryBackoffs: []time.Duration{0, 0, 0},
+	}
+
+	exec := pipeline.NewExecutor(p, cfg)
+	if err := exec.Run(); err == nil {
+		t.Fatal("expected error for unknown provider, got nil")
+	}
+}
