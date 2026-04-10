@@ -16,6 +16,7 @@ import (
 
 	"github.com/ohare93/juggle/internal/agent"
 	"github.com/ohare93/juggle/internal/agent/provider"
+	"github.com/ohare93/juggle/internal/pipeline"
 	"github.com/spf13/cobra"
 )
 
@@ -838,6 +839,27 @@ func Run(cfg Config) error {
 	return RunLoop(cfg)
 }
 
+// runViaPipeline converts cfg to a Pipeline and runs it through the executor.
+// Called by RunLoop when JUGGLE_USE_PIPELINE=1.
+func runViaPipeline(cfg Config) error {
+	p := AdaptConfigToPipeline(cfg)
+	if err := pipeline.Normalize(p); err != nil {
+		return fmt.Errorf("pipeline: %w", err)
+	}
+	execCfg := pipeline.ExecutorConfig{
+		Runner:        cfg.Runner,
+		Stdout:        cfg.Stdout,
+		Stderr:        cfg.Stderr,
+		ForceCtx:      cfg.ForceCtx,
+		Shutdown:      cfg.Shutdown,
+		WorkDir:       cfg.WorkDir,
+		RunID:         cfg.RunID,
+		Label:         cfg.Label,
+		RetryBackoffs: cfg.RetryBackoffs,
+	}
+	return pipeline.NewExecutor(p, execCfg).Run()
+}
+
 // RunLoop runs the agent in a loop for the configured number of iterations.
 func RunLoop(cfg Config) error {
 	if cfg.Stderr == nil {
@@ -847,12 +869,18 @@ func RunLoop(cfg Config) error {
 		cfg.RunID = generateRunID()
 	}
 
-	if cfg.Resume && cfg.Log == "" {
-		return fmt.Errorf("--resume requires --log to be set")
-	}
-
 	if cfg.Label == "" {
 		cfg.Label = autoLabel(cfg.Content)
+	}
+
+	// Pipeline gate: JUGGLE_USE_PIPELINE=1 routes execution through the pipeline executor.
+	// Old code path remains as fallback when the gate is off.
+	if os.Getenv("JUGGLE_USE_PIPELINE") == "1" {
+		return runViaPipeline(cfg)
+	}
+
+	if cfg.Resume && cfg.Log == "" {
+		return fmt.Errorf("--resume requires --log to be set")
 	}
 
 	max := cfg.Iterations
