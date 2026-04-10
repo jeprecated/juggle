@@ -392,3 +392,244 @@ func TestExecutor_CmdNode_EnvVarsAvailable(t *testing.T) {
 		t.Errorf("expected JUGGLE_ITERATION=0 for run-start, got %q", string(data))
 	}
 }
+
+func TestExecutor_cmdNodeTimeout(t *testing.T) {
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:    "slow",
+			Kind:    pipeline.NodeKindCmd,
+			Event:   pipeline.EventRunStart,
+			Timeout: 100 * time.Millisecond,
+			Cmd:     &pipeline.CmdSpec{Command: "sleep 10"},
+		},
+		minAgentNode("main"),
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	err := exec.Run()
+	if err == nil {
+		t.Fatal("expected error from timed-out cmd node")
+	}
+}
+
+// --- parallel execution tests ---
+
+func TestExecutor_Parallel_BothNodesComplete(t *testing.T) {
+	dir := t.TempDir()
+	fileA := filepath.Join(dir, "a")
+	fileB := filepath.Join(dir, "b")
+
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:     "main",
+			Kind:     pipeline.NodeKindAgent,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Agent:    &pipeline.AgentSpec{Prompt: "body"},
+		},
+		pipeline.Node{
+			Name:     "side-a",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileA)},
+		},
+		pipeline.Node{
+			Name:     "side-b",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileB)},
+		},
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, err := os.Stat(fileA); os.IsNotExist(err) {
+		t.Error("node 'side-a' did not run")
+	}
+	if _, err := os.Stat(fileB); os.IsNotExist(err) {
+		t.Error("node 'side-b' did not run")
+	}
+}
+
+func TestExecutor_Parallel_DependentNodeRunsAfterDep(t *testing.T) {
+	dir := t.TempDir()
+	fileA := filepath.Join(dir, "a")
+	fileC := filepath.Join(dir, "c")
+
+	runner := agent.NewMockRunner(okResult())
+	// node-a creates fileA; node-c (After=[node-a]) verifies fileA exists then creates fileC.
+	// If node-c ran before node-a, fileA would not exist and [ -f ] exits 1, so fileC is not created.
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:     "main",
+			Kind:     pipeline.NodeKindAgent,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Agent:    &pipeline.AgentSpec{Prompt: "body"},
+		},
+		pipeline.Node{
+			Name:     "node-a",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileA)},
+		},
+		pipeline.Node{
+			Name:     "node-c",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			After:    []string{"node-a"},
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("[ -f %s ] && touch %s", fileA, fileC)},
+		},
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, err := os.Stat(fileA); os.IsNotExist(err) {
+		t.Error("node 'node-a' did not run")
+	}
+	if _, err := os.Stat(fileC); os.IsNotExist(err) {
+		t.Error("node 'node-c' did not run or ran before 'node-a'")
+	}
+}
+
+func TestExecutor_Parallel_StopFailurePropagatesError(t *testing.T) {
+	runner := agent.NewMockRunner(failResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:      "main",
+			Kind:      pipeline.NodeKindAgent,
+			Event:     pipeline.EventLoopBody,
+			Parallel:  true,
+			OnFailure: pipeline.FailurePolicyStop,
+			Agent:     &pipeline.AgentSpec{Prompt: "body"},
+		},
+		pipeline.Node{
+			Name:     "side",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Cmd:      &pipeline.CmdSpec{Command: "true"},
+		},
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err == nil {
+		t.Error("expected error from failing stop-policy parallel node")
+	}
+}
+
+func TestExecutor_Parallel_ContinueFailureAllowsSiblings(t *testing.T) {
+	dir := t.TempDir()
+	sideFile := filepath.Join(dir, "side")
+
+	runner := agent.NewMockRunner(failResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:      "main",
+			Kind:      pipeline.NodeKindAgent,
+			Event:     pipeline.EventLoopBody,
+			Parallel:  true,
+			OnFailure: pipeline.FailurePolicyContinue,
+			Agent:     &pipeline.AgentSpec{Prompt: "body"},
+		},
+		pipeline.Node{
+			Name:     "side",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", sideFile)},
+		},
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Errorf("expected no error from continue-policy failure, got: %v", err)
+	}
+	if _, err := os.Stat(sideFile); os.IsNotExist(err) {
+		t.Error("side node should have run despite main failing with continue policy")
+	}
+}
+
+func TestExecutor_Parallel_MaxParallelSteps_Respected(t *testing.T) {
+	// With MaxParallelSteps=1, two 50ms sleep nodes run sequentially: total ≥90ms.
+	runner := agent.NewMockRunner(okResult())
+	p := &pipeline.Pipeline{
+		Iterations:       1,
+		MaxParallelSteps: 1,
+		Nodes: []pipeline.Node{
+			{Name: "main", Kind: pipeline.NodeKindAgent, Event: pipeline.EventLoopBody, Parallel: true,
+				Agent: &pipeline.AgentSpec{Prompt: "body"}},
+			{Name: "sleep1", Kind: pipeline.NodeKindCmd, Event: pipeline.EventLoopBody, Parallel: true,
+				Cmd: &pipeline.CmdSpec{Command: "sleep 0.05"}},
+			{Name: "sleep2", Kind: pipeline.NodeKindCmd, Event: pipeline.EventLoopBody, Parallel: true,
+				Cmd: &pipeline.CmdSpec{Command: "sleep 0.05"}},
+		},
+	}
+	if err := pipeline.Normalize(p); err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+
+	start := time.Now()
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	elapsed := time.Since(start)
+
+	if elapsed < 90*time.Millisecond {
+		t.Errorf("expected ≥90ms with MaxParallelSteps=1 for two 50ms nodes, got %v", elapsed)
+	}
+}
+
+func TestExecutor_Parallel_ShutdownCancelsRunning(t *testing.T) {
+	shutdown := make(chan struct{})
+
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:      "slow",
+			Kind:      pipeline.NodeKindCmd,
+			Event:     pipeline.EventLoopBody,
+			Parallel:  true,
+			OnFailure: pipeline.FailurePolicyStop,
+			Cmd:       &pipeline.CmdSpec{Command: "sleep 30"},
+		},
+		pipeline.Node{
+			Name:     "main",
+			Kind:     pipeline.NodeKindAgent,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Agent:    &pipeline.AgentSpec{Prompt: "body"},
+		},
+	)
+
+	cfg := baseExecCfg(runner)
+	cfg.Shutdown = shutdown
+
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		close(shutdown)
+	}()
+
+	start := time.Now()
+	exec := pipeline.NewExecutor(p, cfg)
+	err := exec.Run()
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Error("expected error from shutdown cancellation")
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("expected cancellation within 2 seconds, took %v", elapsed)
+	}
+}

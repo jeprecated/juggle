@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
@@ -34,6 +35,14 @@ type Executor struct {
 // NewExecutor creates an Executor for a validated pipeline.
 func NewExecutor(p *Pipeline, cfg ExecutorConfig) *Executor {
 	return &Executor{pipeline: p, cfg: cfg}
+}
+
+// forceCtx returns ForceCtx if set, otherwise context.Background().
+func (e *Executor) forceCtx() context.Context {
+	if e.cfg.ForceCtx != nil {
+		return e.cfg.ForceCtx
+	}
+	return context.Background()
 }
 
 // Run executes the pipeline from run-start through run-end.
@@ -78,23 +87,164 @@ func (e *Executor) Run() error {
 	return nil
 }
 
-// runEvent executes all nodes for the given event in pipeline order.
+// runEvent executes all nodes for the given event. If any node has Parallel=true,
+// nodes run concurrently respecting After dependencies; otherwise sequential.
 func (e *Executor) runEvent(event Event, iteration int) error {
+	var nodes []Node
+	hasParallel := false
 	for _, n := range e.pipeline.Nodes {
 		if n.Event != event {
 			continue
 		}
-		if err := e.runNodeWithPolicy(n, iteration); err != nil {
-			return err
+		nodes = append(nodes, n)
+		if n.Parallel {
+			hasParallel = true
 		}
 	}
-	return nil
+
+	if !hasParallel {
+		ctx := e.forceCtx()
+		for _, n := range nodes {
+			if err := e.runNodeWithPolicy(ctx, n, iteration); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	return e.runEventConcurrent(nodes, iteration)
+}
+
+// runEventConcurrent executes nodes concurrently, respecting After dependencies
+// and the MaxParallelSteps limit. A stop-policy failure cancels all siblings.
+func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
+	ctx, cancel := context.WithCancel(e.forceCtx())
+	defer cancel()
+
+	// Forward shutdown signal into the per-event context.
+	if e.cfg.Shutdown != nil {
+		go func() {
+			select {
+			case <-e.cfg.Shutdown:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
+
+	// Index nodes by name for dependency lookups.
+	nameToIdx := make(map[string]int, len(nodes))
+	for i, n := range nodes {
+		nameToIdx[n.Name] = i
+	}
+
+	type nodeState struct {
+		started bool
+		done    bool
+	}
+	states := make([]nodeState, len(nodes))
+
+	var mu sync.Mutex
+	doneCh := make(chan error, len(nodes))
+	launched := 0
+
+	// Semaphore limits concurrency; nil means unlimited.
+	var sem chan struct{}
+	if e.pipeline.MaxParallelSteps > 0 {
+		sem = make(chan struct{}, e.pipeline.MaxParallelSteps)
+	}
+
+	var firstStopErr error
+
+	// schedule starts all nodes whose After dependencies are satisfied.
+	schedule := func() {
+		if ctx.Err() != nil {
+			return
+		}
+		for i, n := range nodes {
+			mu.Lock()
+			if states[i].started {
+				mu.Unlock()
+				continue
+			}
+			allDepsOk := true
+			for _, dep := range n.After {
+				idx, ok := nameToIdx[dep]
+				if !ok {
+					continue // dep not in this event; treat as satisfied
+				}
+				if !states[idx].done {
+					allDepsOk = false
+					break
+				}
+			}
+			if !allDepsOk {
+				mu.Unlock()
+				continue
+			}
+			states[i].started = true
+			launched++
+			mu.Unlock()
+
+			go func(i int, node Node) {
+				// Acquire semaphore slot (respects cancellation).
+				if sem != nil {
+					select {
+					case sem <- struct{}{}:
+						defer func() { <-sem }()
+					case <-ctx.Done():
+						mu.Lock()
+						states[i].done = true
+						mu.Unlock()
+						doneCh <- nil
+						return
+					}
+				}
+
+				var err error
+				if ctx.Err() == nil {
+					err = e.runNodeWithPolicy(ctx, node, iteration)
+				}
+
+				mu.Lock()
+				states[i].done = true
+				if err != nil && firstStopErr == nil {
+					firstStopErr = err
+					cancel()
+				}
+				mu.Unlock()
+
+				doneCh <- err
+			}(i, n)
+		}
+	}
+
+	schedule()
+
+	received := 0
+	for received < launched {
+		err := <-doneCh
+		received++
+		if err != nil {
+			mu.Lock()
+			if firstStopErr == nil {
+				firstStopErr = err
+			}
+			mu.Unlock()
+		}
+		schedule()
+	}
+
+	mu.Lock()
+	err := firstStopErr
+	mu.Unlock()
+	return err
 }
 
 // runNodeWithPolicy evaluates the when condition and applies the node's failure policy.
-func (e *Executor) runNodeWithPolicy(n Node, iteration int) error {
+func (e *Executor) runNodeWithPolicy(ctx context.Context, n Node, iteration int) error {
 	if n.When != "" {
-		run, err := e.evalWhen(n.When, iteration)
+		run, err := e.evalWhen(ctx, n.When, iteration)
 		if err != nil {
 			return fmt.Errorf("node %q when condition: %w", n.Name, err)
 		}
@@ -114,7 +264,7 @@ func (e *Executor) runNodeWithPolicy(n Node, iteration int) error {
 		if attempt > 0 {
 			time.Sleep(e.retryBackoff(attempt))
 		}
-		lastErr = e.runNode(n, iteration)
+		lastErr = e.runNode(ctx, n, iteration)
 		if lastErr == nil {
 			return nil
 		}
@@ -144,19 +294,19 @@ func (e *Executor) retryBackoff(attempt int) time.Duration {
 }
 
 // runNode dispatches to the correct executor for the node kind.
-func (e *Executor) runNode(n Node, iteration int) error {
+func (e *Executor) runNode(ctx context.Context, n Node, iteration int) error {
 	switch n.Kind {
 	case NodeKindAgent:
-		return e.runAgentNode(n, iteration)
+		return e.runAgentNode(ctx, n, iteration)
 	case NodeKindCmd:
-		return e.runCmdNode(n, iteration)
+		return e.runCmdNode(ctx, n, iteration)
 	default:
 		return fmt.Errorf("unknown node kind %q", n.Kind)
 	}
 }
 
 // runAgentNode executes an agent-kind node using the configured Runner.
-func (e *Executor) runAgentNode(n Node, iteration int) error {
+func (e *Executor) runAgentNode(ctx context.Context, n Node, iteration int) error {
 	spec := n.Agent
 
 	perm := provider.PermissionAcceptEdits
@@ -169,11 +319,6 @@ func (e *Executor) runAgentNode(n Node, iteration int) error {
 	workDir := n.WorkDir
 	if workDir == "" {
 		workDir = e.cfg.WorkDir
-	}
-
-	ctx := e.cfg.ForceCtx
-	if ctx == nil {
-		ctx = context.Background()
 	}
 
 	opts := agent.RunOptions{
@@ -204,7 +349,7 @@ func (e *Executor) runAgentNode(n Node, iteration int) error {
 }
 
 // runCmdNode executes a cmd-kind node as a shell command.
-func (e *Executor) runCmdNode(n Node, iteration int) error {
+func (e *Executor) runCmdNode(ctx context.Context, n Node, iteration int) error {
 	spec := n.Cmd
 
 	shell := spec.Shell
@@ -217,9 +362,10 @@ func (e *Executor) runCmdNode(n Node, iteration int) error {
 		workDir = e.cfg.WorkDir
 	}
 
-	ctx := e.cfg.ForceCtx
-	if ctx == nil {
-		ctx = context.Background()
+	if n.Timeout > 0 {
+		var cancelFn context.CancelFunc
+		ctx, cancelFn = context.WithTimeout(ctx, n.Timeout)
+		defer cancelFn()
 	}
 
 	cmd := exec.CommandContext(ctx, shell, "-c", spec.Command)
@@ -234,13 +380,11 @@ func (e *Executor) runCmdNode(n Node, iteration int) error {
 
 // evalWhen evaluates a when condition (shell command).
 // Returns true if the command exits 0 (node should run), false otherwise.
-func (e *Executor) evalWhen(when string, iteration int) (bool, error) {
-	ctx := e.cfg.ForceCtx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-
+func (e *Executor) evalWhen(ctx context.Context, when string, iteration int) (bool, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", when)
+	cmd.Dir = e.cfg.WorkDir
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
 	cmd.Env = append(os.Environ(), e.juggleEnv(iteration)...)
 
 	if err := cmd.Run(); err != nil {
