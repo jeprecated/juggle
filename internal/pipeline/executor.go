@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,25 @@ import (
 	"github.com/ohare93/juggle/internal/agent"
 	"github.com/ohare93/juggle/internal/agent/provider"
 )
+
+// NodeResult holds the execution outcome of a node, used to populate WhenContext
+// for subsequent nodes.
+type NodeResult struct {
+	Skipped  bool
+	Success  bool
+	ExitCode int
+}
+
+func nodeResultFromErr(err error) NodeResult {
+	if err == nil {
+		return NodeResult{Success: true, ExitCode: 0}
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return NodeResult{Success: false, ExitCode: ee.ExitCode()}
+	}
+	return NodeResult{Success: false, ExitCode: 1}
+}
 
 // ExecutorConfig holds the dependencies and runtime settings for a pipeline execution.
 type ExecutorConfig struct {
@@ -110,9 +130,19 @@ func (e *Executor) runEvent(event Event, iteration int) error {
 
 	if !hasParallel {
 		ctx := e.forceCtx()
+		prev := NodeResult{Success: true}
 		for _, n := range nodes {
-			if err := e.runNodeWithPolicy(ctx, n, iteration); err != nil {
+			wctx := WhenContext{
+				Iteration:    iteration,
+				PrevSuccess:  prev.Success,
+				PrevExitCode: prev.ExitCode,
+			}
+			result, err := e.runNodeWithPolicy(ctx, n, wctx)
+			if err != nil {
 				return err
+			}
+			if !result.Skipped {
+				prev = result
 			}
 		}
 		return nil
@@ -149,6 +179,7 @@ func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
 		done    bool
 	}
 	states := make([]nodeState, len(nodes))
+	nodeResults := make(map[string]NodeResult, len(nodes))
 
 	var mu sync.Mutex
 	doneCh := make(chan error, len(nodes))
@@ -161,6 +192,17 @@ func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
 	}
 
 	var firstStopErr error
+
+	// prevResultFor returns the NodeResult of the first After dependency that has
+	// completed, or a default success result if none is available.
+	prevResultFor := func(n Node) NodeResult {
+		for _, dep := range n.After {
+			if r, ok := nodeResults[dep]; ok && !r.Skipped {
+				return r
+			}
+		}
+		return NodeResult{Success: true}
+	}
 
 	// schedule starts all nodes whose After dependencies are satisfied.
 	schedule := func() {
@@ -190,9 +232,14 @@ func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
 			}
 			states[i].started = true
 			launched++
+			wctx := WhenContext{
+				Iteration:    iteration,
+				PrevSuccess:  prevResultFor(n).Success,
+				PrevExitCode: prevResultFor(n).ExitCode,
+			}
 			mu.Unlock()
 
-			go func(i int, node Node) {
+			go func(i int, node Node, wctx WhenContext) {
 				// Acquire semaphore slot (respects cancellation).
 				if sem != nil {
 					select {
@@ -207,13 +254,17 @@ func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
 					}
 				}
 
-				var err error
+				var (
+					result NodeResult
+					err    error
+				)
 				if ctx.Err() == nil {
-					err = e.runNodeWithPolicy(ctx, node, iteration)
+					result, err = e.runNodeWithPolicy(ctx, node, wctx)
 				}
 
 				mu.Lock()
 				states[i].done = true
+				nodeResults[node.Name] = result
 				if err != nil && firstStopErr == nil {
 					firstStopErr = err
 					cancel()
@@ -221,7 +272,7 @@ func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
 				mu.Unlock()
 
 				doneCh <- err
-			}(i, n)
+			}(i, n, wctx)
 		}
 	}
 
@@ -248,14 +299,14 @@ func (e *Executor) runEventConcurrent(nodes []Node, iteration int) error {
 }
 
 // runNodeWithPolicy evaluates the when condition and applies the node's failure policy.
-func (e *Executor) runNodeWithPolicy(ctx context.Context, n Node, iteration int) error {
+func (e *Executor) runNodeWithPolicy(ctx context.Context, n Node, wctx WhenContext) (NodeResult, error) {
 	if n.When != "" {
-		run, err := e.evalWhen(ctx, n.When, iteration)
+		run, err := e.evalWhen(ctx, n.When, wctx)
 		if err != nil {
-			return fmt.Errorf("node %q when condition: %w", n.Name, err)
+			return NodeResult{}, fmt.Errorf("node %q when condition: %w", n.Name, err)
 		}
 		if !run {
-			return nil
+			return NodeResult{Skipped: true}, nil
 		}
 	}
 
@@ -270,17 +321,18 @@ func (e *Executor) runNodeWithPolicy(ctx context.Context, n Node, iteration int)
 		if attempt > 0 {
 			time.Sleep(e.retryBackoff(attempt))
 		}
-		lastErr = e.runNode(ctx, n, iteration)
+		lastErr = e.runNode(ctx, n, wctx.Iteration)
 		if lastErr == nil {
-			return nil
+			return NodeResult{Success: true, ExitCode: 0}, nil
 		}
 	}
 
+	result := nodeResultFromErr(lastErr)
 	if policy == FailurePolicyContinue {
 		fmt.Fprintf(e.cfg.Stderr, "node %q failed (continuing): %v\n", n.Name, lastErr)
-		return nil
+		return result, nil
 	}
-	return fmt.Errorf("node %q: %w", n.Name, lastErr)
+	return result, fmt.Errorf("node %q: %w", n.Name, lastErr)
 }
 
 func (e *Executor) retryBackoff(attempt int) time.Duration {
@@ -402,14 +454,24 @@ func (e *Executor) runCmdNode(ctx context.Context, n Node, iteration int) error 
 	return cmd.Run()
 }
 
-// evalWhen evaluates a when condition (shell command).
-// Returns true if the command exits 0 (node should run), false otherwise.
-func (e *Executor) evalWhen(ctx context.Context, when string, iteration int) (bool, error) {
+// evalWhen evaluates a when condition. Structured expressions matching the
+// grammar (iteration, success, exit_code) are evaluated in-process; all others
+// fall back to shell execution.
+func (e *Executor) evalWhen(ctx context.Context, when string, wctx WhenContext) (bool, error) {
+	result, matched, err := EvalStructured(when, wctx)
+	if err != nil {
+		return false, err
+	}
+	if matched {
+		return result, nil
+	}
+
+	// Shell fallback.
 	cmd := exec.CommandContext(ctx, "sh", "-c", when)
 	cmd.Dir = e.cfg.WorkDir
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
-	cmd.Env = append(os.Environ(), e.juggleEnv(iteration)...)
+	cmd.Env = append(os.Environ(), e.juggleEnv(wctx.Iteration)...)
 
 	if err := cmd.Run(); err != nil {
 		if _, ok := err.(*exec.ExitError); ok {

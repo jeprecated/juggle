@@ -777,6 +777,143 @@ func TestExecutor_PerNodeProvider_NilRunnerNoProviderError(t *testing.T) {
 	}
 }
 
+func TestExecutor_StructuredWhen_IterationSkip(t *testing.T) {
+	dir := t.TempDir()
+	touchFile := filepath.Join(dir, "touched")
+
+	runner := agent.NewMockRunner(okResult(), okResult(), okResult())
+	p := normalizedPipeline(t, 3,
+		pipeline.Node{
+			Name:  "only-iter-2",
+			Kind:  pipeline.NodeKindCmd,
+			Event: pipeline.EventLoopBody,
+			When:  "iteration==2",
+			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+		},
+		minAgentNode("main"),
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// File must exist (ran on iteration 2) but node should have been skipped on 1 and 3.
+	if _, err := os.Stat(touchFile); os.IsNotExist(err) {
+		t.Error("expected node to run on iteration 2 (file should exist)")
+	}
+}
+
+func TestExecutor_StructuredWhen_SuccessCheck(t *testing.T) {
+	dir := t.TempDir()
+	touchFile := filepath.Join(dir, "touched")
+
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:  "prereq",
+			Kind:  pipeline.NodeKindCmd,
+			Event: pipeline.EventRunStart,
+			Cmd:   &pipeline.CmdSpec{Command: "true"},
+		},
+		pipeline.Node{
+			Name:  "on-success",
+			Kind:  pipeline.NodeKindCmd,
+			Event: pipeline.EventRunStart,
+			When:  "success==true",
+			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+		},
+		minAgentNode("main"),
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if _, err := os.Stat(touchFile); os.IsNotExist(err) {
+		t.Error("expected node to run when previous node succeeded")
+	}
+}
+
+func TestExecutor_StructuredWhen_SuccessCheckAfterFailure(t *testing.T) {
+	dir := t.TempDir()
+	touchFile := filepath.Join(dir, "touched")
+
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:      "failing",
+			Kind:      pipeline.NodeKindCmd,
+			Event:     pipeline.EventRunStart,
+			OnFailure: pipeline.FailurePolicyContinue,
+			Cmd:       &pipeline.CmdSpec{Command: "false"},
+		},
+		pipeline.Node{
+			Name:  "on-failure",
+			Kind:  pipeline.NodeKindCmd,
+			Event: pipeline.EventRunStart,
+			When:  "success==false",
+			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+		},
+		minAgentNode("main"),
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if _, err := os.Stat(touchFile); os.IsNotExist(err) {
+		t.Error("expected node to run when previous node failed")
+	}
+}
+
+func TestExecutor_StructuredWhen_ParseError(t *testing.T) {
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:  "bad-when",
+			Kind:  pipeline.NodeKindCmd,
+			Event: pipeline.EventRunStart,
+			When:  "iteration==abc",
+			Cmd:   &pipeline.CmdSpec{Command: "true"},
+		},
+		minAgentNode("main"),
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err == nil {
+		t.Error("expected error for malformed structured when condition")
+	}
+}
+
+func TestExecutor_StructuredWhen_ShellFallback(t *testing.T) {
+	dir := t.TempDir()
+	touchFile := filepath.Join(dir, "touched")
+
+	runner := agent.NewMockRunner(okResult())
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:  "shell-when",
+			Kind:  pipeline.NodeKindCmd,
+			Event: pipeline.EventRunStart,
+			When:  fmt.Sprintf("test ! -f %s", touchFile), // shell expression
+			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+		},
+		minAgentNode("main"),
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if _, err := os.Stat(touchFile); os.IsNotExist(err) {
+		t.Error("expected shell when condition to work as fallback")
+	}
+}
+
 func TestExecutor_PerNodeProvider_UnknownProviderError(t *testing.T) {
 	factory := func(name string) (agent.Runner, error) {
 		return nil, fmt.Errorf("unknown provider %q", name)
