@@ -64,6 +64,8 @@ type FileConfig struct {
 	SystemPrompt *string  `toml:"system_prompt"`
 	Workers      *int     `toml:"workers"`
 	WorkDir      *string  `toml:"workdir"`
+	Channels     *string  `toml:"channels"`
+	ExtraArgs    []string `toml:"extra_args"`
 }
 
 // LoadConfig looks for a config file in cwd/juggle.toml, then ~/.config/juggle/config.toml.
@@ -213,6 +215,12 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 	}
 	if cfg.WorkDir != nil {
 		set("workdir", func() { flags.workdir = *cfg.WorkDir })
+	}
+	if cfg.Channels != nil {
+		set("channels", func() { flags.channels = *cfg.Channels })
+	}
+	if cfg.ExtraArgs != nil {
+		set("extra", func() { flags.extraArgs = cfg.ExtraArgs })
 	}
 
 	if verbose && len(applied) > 0 {

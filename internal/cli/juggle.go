@@ -223,6 +223,8 @@ var flags struct {
 	workdir         string
 	noConfig        bool
 	resume          bool
+	channels        string
+	extraArgs       []string
 }
 
 // watchFlags holds flags specific to the watch subcommand.
@@ -271,6 +273,9 @@ func init() {
 	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
+	pf.StringVar(&flags.channels, "channels", "", "development channels for agent (e.g. server:claude-peers)")
+	pf.StringArrayVar(&flags.extraArgs, "extra", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
+	pf.Lookup("extra").Shorthand = "X"
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
 
@@ -285,7 +290,7 @@ func init() {
 	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt", "resume"} {
 		setFlagGroup(pf, name, "Loop Control")
 	}
-	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "workdir"} {
+	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "workdir", "channels", "extra"} {
 		setFlagGroup(pf, name, "Agent Configuration")
 	}
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
@@ -411,6 +416,21 @@ func splitPassthroughArgs(args []string, dashLen int) ([]string, []string) {
 	return normal, passthru
 }
 
+// mergePassthroughArgs combines -X/--extra args, --channels expansion, and --
+// passthrough args into a single slice for RunOptions.PassthroughArgs.
+func mergePassthroughArgs(extra []string, channels string, passthrough []string) []string {
+	if len(extra) == 0 && channels == "" && len(passthrough) == 0 {
+		return nil
+	}
+	merged := make([]string, 0, len(extra)+len(passthrough)+2)
+	merged = append(merged, extra...)
+	if channels != "" {
+		merged = append(merged, "--dangerously-load-development-channels", channels)
+	}
+	merged = append(merged, passthrough...)
+	return merged
+}
+
 // run is the cobra RunE handler.
 func run(cmd *cobra.Command, args []string) error {
 	normalArgs, passthroughArgs := splitPassthroughArgs(args, cmd.Flags().ArgsLenAtDash())
@@ -533,7 +553,7 @@ func run(cmd *cobra.Command, args []string) error {
 		MCPConfig:         flags.mcpConfig,
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
-		PassthroughArgs:   passthroughArgs,
+		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
 		RetryPrompt:       retryPrompt,
@@ -733,7 +753,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		MCPConfig:         flags.mcpConfig,
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
-		PassthroughArgs:   passthroughArgs,
+		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
 		AgentCmd:          flags.agentCmd,
 		SystemPrompt:      systemPrompt,
 		RetryPrompt:       retryPrompt,
