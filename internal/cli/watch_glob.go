@@ -273,7 +273,24 @@ func runGlobWatchSerial(cfg Config) error {
 
 	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 
-	for {
+	// Run agent-pre once before the iteration loop
+	if cfg.AgentPre != "" {
+		formatter := NewLoopFormatter(cfg.Stderr)
+		formatter.PhaseAgentHeader("pre")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPre)
+		}
+		env := phaseEnv{phase: "pre", iteration: 0, maxIter: cfg.Iterations, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-pre failed: %w", err)
+		}
+	}
+
+	max := cfg.Iterations
+	taskState := newRunTaskState()
+
+	for i := 1; max == 0 || i <= max; i++ {
+		// Check shutdown before starting each iteration
 		select {
 		case <-cfg.Shutdown:
 			writeSummary(cfg, stats)
@@ -281,6 +298,7 @@ func runGlobWatchSerial(cfg Config) error {
 		default:
 		}
 
+	retryIteration:
 		dirs, err := expandGlobDirs(cfg.WorkDir, globPattern)
 		if err != nil {
 			return fmt.Errorf("expanding glob %q: %w", globPattern, err)
@@ -302,11 +320,7 @@ func runGlobWatchSerial(cfg Config) error {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
-			fmt.Fprintf(cfg.Stderr, "No tasks found matching %s, polling in %v...\n", globPattern, pollDelay)
-			select {
-			case <-time.After(pollDelay):
-			case <-cfg.Shutdown:
-			}
+			pollWait(cfg.Stderr, fmt.Sprintf("Watching %s", globPattern), pollDelay, cfg.Shutdown)
 			continue
 		}
 
@@ -321,8 +335,8 @@ func runGlobWatchSerial(cfg Config) error {
 			dash.dash.Update(0, WorkerState{
 				Status:    WorkerActive,
 				TaskName:  filename,
-				Iteration: 0,
-				MaxIter:   cfg.Iterations,
+				Iteration: i,
+				MaxIter:   max,
 				LogFile:   logFile,
 			})
 			taskCfg.OnIterDone = func(iter, maxIter int) {
@@ -337,10 +351,11 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
-			if dash != nil {
-				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
-			}
+		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if dash != nil {
+			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+		}
+		if err != nil {
 			if errors.Is(err, ErrInterrupted) {
 				writeSummary(cfg, stats)
 				return ErrInterrupted
@@ -349,13 +364,48 @@ func runGlobWatchSerial(cfg Config) error {
 				writeSummary(cfg, stats)
 				return nil
 			}
+			if errors.Is(err, errFileGone) {
+				// File completed by agent, continue to next iteration
+				continue
+			}
+			if errors.Is(err, errRetryIteration) {
+				// Quota/rate limit hit, retry same iteration (don't increment i)
+				goto retryIteration
+			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
-		if dash != nil {
-			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+
+		// Wait between iterations (skip after last), interruptible by shutdown
+		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
+			d := computeDelay(cfg.Delay, cfg.Fuzz)
+			if d > 0 {
+				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
+				select {
+				case <-time.After(d):
+				case <-cfg.Shutdown:
+					writeSummary(cfg, stats)
+					return ErrInterrupted
+				}
+			}
 		}
 	}
+
+	// Run agent-post once after the iteration loop
+	if cfg.AgentPost != "" {
+		formatter := NewLoopFormatter(cfg.Stderr)
+		formatter.PhaseAgentHeader("post")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
+		}
+		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-post failed: %w", err)
+		}
+	}
+
+	writeSummary(cfg, stats)
+	return nil
 }
 
 func runGlobWatchWorkers(cfg Config) error {
@@ -414,7 +464,24 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		logFile = dash.logFiles[workerID]
 	}
 
-	for {
+	// Run agent-pre once before the iteration loop
+	if cfg.AgentPre != "" {
+		formatter := NewLoopFormatter(cfg.Stderr)
+		formatter.PhaseAgentHeader("pre")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPre)
+		}
+		env := phaseEnv{phase: "pre", iteration: 0, maxIter: cfg.Iterations, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-pre failed: %w", err)
+		}
+	}
+
+	max := cfg.Iterations
+	taskState := newRunTaskState()
+
+	for i := 1; max == 0 || i <= max; i++ {
+		// Check shutdown before starting each iteration
 		select {
 		case <-cfg.Shutdown:
 			writeSummary(cfg, stats)
@@ -422,6 +489,7 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		default:
 		}
 
+	retryIteration:
 		dirs := getDirs()
 		taskPath, err := coord.claimFromDirs(dirs)
 		if err != nil {
@@ -432,11 +500,7 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 			}
-			fmt.Fprintf(cfg.Stderr, "No tasks available, polling in %v...\n", pollDelay)
-			select {
-			case <-time.After(pollDelay):
-			case <-cfg.Shutdown:
-			}
+			pollWait(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown)
 			continue
 		}
 
@@ -450,8 +514,8 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 			dash.dash.Update(workerID, WorkerState{
 				Status:    WorkerActive,
 				TaskName:  filename,
-				Iteration: 0,
-				MaxIter:   cfg.Iterations,
+				Iteration: i,
+				MaxIter:   max,
 				LogFile:   logFile,
 			})
 			taskCfg.OnIterDone = func(iter, maxIter int) {
@@ -466,7 +530,8 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
+		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if err != nil {
 			coord.release(taskPath)
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
@@ -479,6 +544,15 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 				writeSummary(cfg, stats)
 				return nil
 			}
+			if errors.Is(err, errFileGone) {
+				// File completed by agent, continue to next iteration
+				continue
+			}
+			if errors.Is(err, errRetryIteration) {
+				// Quota/rate limit hit, retry same iteration (don't increment i)
+				coord.release(taskPath)
+				goto retryIteration
+			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
@@ -486,7 +560,37 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		if dash != nil {
 			dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 		}
+
+		// Wait between iterations (skip after last), interruptible by shutdown
+		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
+			d := computeDelay(cfg.Delay, cfg.Fuzz)
+			if d > 0 {
+				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
+				select {
+				case <-time.After(d):
+				case <-cfg.Shutdown:
+					writeSummary(cfg, stats)
+					return ErrInterrupted
+				}
+			}
+		}
 	}
+
+	// Run agent-post once after the iteration loop
+	if cfg.AgentPost != "" {
+		formatter := NewLoopFormatter(cfg.Stderr)
+		formatter.PhaseAgentHeader("post")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
+		}
+		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-post failed: %w", err)
+		}
+	}
+
+	writeSummary(cfg, stats)
+	return nil
 }
 
 // runMultiWatch handles --watch specified more than once. It merges all watch
@@ -539,7 +643,24 @@ func runMultiWatchSerial(cfg Config) error {
 	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 	coord := newWorkerCoordinator()
 
-	for {
+	// Run agent-pre once before the iteration loop
+	if cfg.AgentPre != "" {
+		formatter := NewLoopFormatter(cfg.Stderr)
+		formatter.PhaseAgentHeader("pre")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPre)
+		}
+		env := phaseEnv{phase: "pre", iteration: 0, maxIter: cfg.Iterations, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentPre, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-pre failed: %w", err)
+		}
+	}
+
+	max := cfg.Iterations
+	taskState := newRunTaskState()
+
+	for i := 1; max == 0 || i <= max; i++ {
+		// Check shutdown before starting each iteration
 		select {
 		case <-cfg.Shutdown:
 			writeSummary(cfg, stats)
@@ -547,6 +668,7 @@ func runMultiWatchSerial(cfg Config) error {
 		default:
 		}
 
+	retryIteration:
 		dirs := getDirsForWatch(cfg.Watch, cfg.WorkDir)
 		taskPath, err := coord.claimFromDirs(dirs)
 		if err != nil {
@@ -557,11 +679,7 @@ func runMultiWatchSerial(cfg Config) error {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
-			fmt.Fprintf(cfg.Stderr, "No tasks found in watched dirs, polling in %v...\n", pollDelay)
-			select {
-			case <-time.After(pollDelay):
-			case <-cfg.Shutdown:
-			}
+			pollWait(cfg.Stderr, "Watching directories", pollDelay, cfg.Shutdown)
 			continue
 		}
 
@@ -576,8 +694,8 @@ func runMultiWatchSerial(cfg Config) error {
 			dash.dash.Update(0, WorkerState{
 				Status:    WorkerActive,
 				TaskName:  filename,
-				Iteration: 0,
-				MaxIter:   cfg.Iterations,
+				Iteration: i,
+				MaxIter:   max,
 				LogFile:   logFile,
 			})
 			taskCfg.OnIterDone = func(iter, maxIter int) {
@@ -592,7 +710,8 @@ func runMultiWatchSerial(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		if err := runWatchTask(taskCfg, taskPath, &stats); err != nil {
+		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if err != nil {
 			coord.release(taskPath)
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
@@ -605,6 +724,15 @@ func runMultiWatchSerial(cfg Config) error {
 				writeSummary(cfg, stats)
 				return nil
 			}
+			if errors.Is(err, errFileGone) {
+				// File completed by agent, continue to next iteration
+				continue
+			}
+			if errors.Is(err, errRetryIteration) {
+				// Quota/rate limit hit, retry same iteration (don't increment i)
+				coord.release(taskPath)
+				goto retryIteration
+			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
@@ -612,7 +740,37 @@ func runMultiWatchSerial(cfg Config) error {
 		if dash != nil {
 			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 		}
+
+		// Wait between iterations (skip after last), interruptible by shutdown
+		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
+			d := computeDelay(cfg.Delay, cfg.Fuzz)
+			if d > 0 {
+				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
+				select {
+				case <-time.After(d):
+				case <-cfg.Shutdown:
+					writeSummary(cfg, stats)
+					return ErrInterrupted
+				}
+			}
+		}
 	}
+
+	// Run agent-post once after the iteration loop
+	if cfg.AgentPost != "" {
+		formatter := NewLoopFormatter(cfg.Stderr)
+		formatter.PhaseAgentHeader("post")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
+		}
+		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
+			return fmt.Errorf("agent-post failed: %w", err)
+		}
+	}
+
+	writeSummary(cfg, stats)
+	return nil
 }
 
 func runMultiWatchWorkers(cfg Config) error {
@@ -658,4 +816,3 @@ func runMultiWatchWorkers(cfg Config) error {
 	}
 	return nil
 }
-

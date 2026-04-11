@@ -453,7 +453,7 @@ func TestRunWatch_GlobPattern_SetsVCSRootAsWorkDir(t *testing.T) {
 	cfg := Config{
 		Watch:      []string{"**/.frontloop/ready"},
 		WorkDir:    base, // basedir for glob expansion
-		Iterations: 1,
+		Iterations: 0,
 		Runner:     runner,
 		Shutdown:   shutdown,
 		Stderr:     &bytes.Buffer{},
@@ -534,7 +534,7 @@ func TestRunWatch_MultiWatch_PicksFromBothDirs(t *testing.T) {
 
 	cfg := Config{
 		Watch:      []string{dir1, dir2},
-		Iterations: 1,
+		Iterations: 0,
 		Runner:     runner,
 		Shutdown:   shutdown,
 		Stderr:     &bytes.Buffer{},
@@ -588,7 +588,7 @@ func TestRunWatch_MultiWatch_WorkersAcrossMultipleDirs(t *testing.T) {
 	cfg := Config{
 		Watch:      []string{dir1, dir2},
 		Workers:    2,
-		Iterations: 1,
+		Iterations: 0,
 		Runner:     runner,
 		Shutdown:   shutdown,
 		Stderr:     &bytes.Buffer{},
@@ -645,7 +645,7 @@ func TestRunWatch_MultiWatch_GlobAndLiteralMixed(t *testing.T) {
 	cfg := Config{
 		Watch:      []string{litDir, "**/.frontloop/ready"},
 		WorkDir:    base,
-		Iterations: 1,
+		Iterations: 0,
 		Runner:     runner,
 		Shutdown:   shutdown,
 		Stderr:     &bytes.Buffer{},
@@ -694,7 +694,7 @@ func TestRunWatch_GlobPattern_WorkersCapConcurrency(t *testing.T) {
 		Watch:      []string{"**/.frontloop/ready"},
 		WorkDir:    base,
 		Workers:    2,
-		Iterations: 1,
+		Iterations: 0,
 		Runner:     runner,
 		Shutdown:   shutdown,
 		Stderr:     &bytes.Buffer{},

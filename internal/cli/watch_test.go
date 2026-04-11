@@ -22,6 +22,26 @@ func (r *funcRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
 	return r.run(opts)
 }
 
+// runWatchTaskMultipleTimes simulates the outer loop calling runWatchTask multiple times.
+// For testing iteration-related behavior in the new architecture.
+func runWatchTaskMultipleTimes(cfg Config, taskFile string, maxIter int, state *runTaskState, stats *runStats) error {
+	for i := 1; i <= maxIter; i++ {
+		if err := runWatchTask(cfg, taskFile, i, maxIter, state, stats); err != nil {
+			if errors.Is(err, errFileGone) {
+				// File completed, stop iterating
+				return nil
+			}
+			if errors.Is(err, errRetryIteration) {
+				// Retry same iteration (don't increment i)
+				i--
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
 func TestScanWatchDir(t *testing.T) {
 	t.Run("empty directory", func(t *testing.T) {
 		dir := t.TempDir()
@@ -113,7 +133,7 @@ func TestRunWatchTask_OnIterDoneCalledPerIteration(t *testing.T) {
 		},
 	}
 
-	if err := runWatchTask(cfg, taskPath, nil); err != nil {
+	if err := runWatchTaskMultipleTimes(cfg, taskPath, 3, newRunTaskState(), nil); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -148,7 +168,7 @@ func TestRunWatchTask_Iterations(t *testing.T) {
 		Stderr:     &bytes.Buffer{},
 	}
 
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTaskMultipleTimes(cfg, taskPath, 2, newRunTaskState(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,9 +201,9 @@ func TestRunWatchTask_FileDeletedByAgent(t *testing.T) {
 		Stderr:     &bytes.Buffer{},
 	}
 
-	err := runWatchTask(cfg, taskPath, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	err := runWatchTask(cfg, taskPath, 1, 1, newRunTaskState(), nil)
+	if !errors.Is(err, errFileGone) {
+		t.Fatalf("expected errFileGone, got %v", err)
 	}
 
 	// Should return immediately since file doesn't exist
@@ -215,29 +235,6 @@ func TestRunWatch_NotADirectory(t *testing.T) {
 	err := RunWatch(cfg)
 	if err == nil {
 		t.Fatal("expected error for non-directory path")
-	}
-}
-
-func TestRunWatchTask_ShutdownPreventNextIteration(t *testing.T) {
-	dir := t.TempDir()
-	taskPath := filepath.Join(dir, "task.md")
-	os.WriteFile(taskPath, []byte("task content"), 0644)
-
-	shutdown := make(chan struct{})
-	runner := &closeOnFirstCallRunner{shutdown: shutdown}
-	cfg := Config{
-		Content:    "context",
-		Iterations: 5,
-		Runner:     runner,
-		Shutdown:   shutdown,
-		Stderr:     &bytes.Buffer{},
-	}
-	err := runWatchTask(cfg, taskPath, nil)
-	if !errors.Is(err, ErrInterrupted) {
-		t.Fatalf("expected ErrInterrupted, got %v", err)
-	}
-	if runner.calls != 1 {
-		t.Errorf("expected 1 call, got %d", runner.calls)
 	}
 }
 
@@ -282,7 +279,7 @@ func TestRunWatchTask_ConsecutiveFailuresStop(t *testing.T) {
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
 	}
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTaskMultipleTimes(cfg, taskPath, 10, newRunTaskState(), nil)
 	if err == nil {
 		t.Fatal("expected error on consecutive failures")
 	}
@@ -314,7 +311,7 @@ func TestRunWatchTask_ConsecutiveFailureCounterResets(t *testing.T) {
 		Runner:      mock,
 		Stderr:      &bytes.Buffer{},
 	}
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTaskMultipleTimes(cfg, taskPath, 5, newRunTaskState(), nil)
 	if err != nil {
 		t.Fatalf("counter should reset on success, got: %v", err)
 	}
@@ -418,7 +415,7 @@ func TestRunWatchTask_StopWhenExitsZeroStops(t *testing.T) {
 		StopWhen:   "true", // always exits 0
 	}
 
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTask(cfg, taskPath, 1, 1, newRunTaskState(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -450,7 +447,7 @@ func TestRunWatchTask_MaxCostGuardTriggersAtThreshold(t *testing.T) {
 		Stderr:     &stderr,
 	}
 
-	err := runWatchTask(cfg, taskPath, stats)
+	err := runWatchTask(cfg, taskPath, 1, 1, newRunTaskState(), stats)
 	if !errors.Is(err, errCostGuard) {
 		t.Fatalf("expected errCostGuard, got: %v", err)
 	}
@@ -507,7 +504,7 @@ func TestRunWatchTask_OnFailureStop_HaltsOnFirstFailure(t *testing.T) {
 		Runner:     mock,
 		Stderr:     &bytes.Buffer{},
 	}
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTask(cfg, taskPath, 1, 1, newRunTaskState(), nil)
 	if err == nil {
 		t.Fatal("expected error when OnFailureStop and iteration fails")
 	}
@@ -535,7 +532,7 @@ func TestRunWatchTask_OnFailureContinue_SkipsToNext(t *testing.T) {
 		Runner:      mock,
 		Stderr:      &stderr,
 	}
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTaskMultipleTimes(cfg, taskPath, 3, newRunTaskState(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -569,7 +566,7 @@ func TestRunWatchTask_OnFailureRetry_RetriesBeforeAdvancing(t *testing.T) {
 		Runner:        mock,
 		Stderr:        &stderr,
 	}
-	err := runWatchTask(cfg, taskPath, nil)
+	err := runWatchTaskMultipleTimes(cfg, taskPath, 2, newRunTaskState(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

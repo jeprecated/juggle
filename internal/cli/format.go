@@ -13,6 +13,51 @@ const (
 	dimOff = "\033[0m"
 )
 
+// throbberFrames are the ASCII spinner characters cycled during poll waits.
+var throbberFrames = [...]byte{'|', '/', '-', '\\'}
+
+// pollWait displays a throbber on w while waiting for delay to elapse.
+// On a TTY the spinner animates in-place; on a pipe a single line is printed.
+// Returns true if shutdown was signaled during the wait.
+func pollWait(w io.Writer, msg string, delay time.Duration, shutdown <-chan struct{}) bool {
+	isTTY := false
+	if f, ok := w.(*os.File); ok {
+		if info, err := f.Stat(); err == nil {
+			isTTY = info.Mode()&os.ModeCharDevice != 0
+		}
+	}
+
+	if !isTTY {
+		fmt.Fprintf(w, "%s\n", msg)
+		select {
+		case <-time.After(delay):
+			return false
+		case <-shutdown:
+			return true
+		}
+	}
+
+	tick := time.NewTicker(150 * time.Millisecond)
+	defer tick.Stop()
+	timeout := time.After(delay)
+	i := 0
+
+	for {
+		fmt.Fprintf(w, "\r%s%s %c%s\033[K", dimOn, msg, throbberFrames[i%len(throbberFrames)], dimOff)
+
+		select {
+		case <-tick.C:
+			i++
+		case <-timeout:
+			fmt.Fprint(w, "\r\033[K")
+			return false
+		case <-shutdown:
+			fmt.Fprint(w, "\r\033[K")
+			return true
+		}
+	}
+}
+
 // LoopFormatter prints iteration headers and status lines to stderr.
 // When the writer is a TTY, output uses dim gray ANSI styling.
 type LoopFormatter struct {

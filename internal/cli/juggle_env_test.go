@@ -201,7 +201,7 @@ func TestRunWatchTask_SetsTaskFileEnvVar(t *testing.T) {
 		Stderr:     &bytes.Buffer{},
 	}
 	stats := &runStats{}
-	if err := runWatchTask(cfg, taskFile, stats); err != nil {
+	if err := runWatchTask(cfg, taskFile, 1, 1, newRunTaskState(), stats); err != nil {
 		t.Fatal(err)
 	}
 	if !hasEnv(mock.Calls[0].Env, "JUGGLE_TASK_FILE="+taskFile) {

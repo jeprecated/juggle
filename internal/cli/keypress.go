@@ -22,7 +22,8 @@ func writeStopRequestedMessage(stderr io.Writer, color bool) {
 // StartKeypressListener starts a goroutine that reads from r one byte at a time.
 // When 'q' or 'Q' is read, trigger is called and a stop message is written to stderr.
 // If color is true, the message is printed in red.
-// Returns a cleanup function that blocks until the goroutine exits.
+// Returns a wait function that blocks until the goroutine exits; callers
+// may discard it if they close r directly (e.g. via ttyCleanup).
 // The goroutine exits when r returns an error (e.g. EOF or file close).
 func StartKeypressListener(r io.Reader, trigger func(), color bool, stderr io.Writer) func() {
 	goroutineDone := make(chan struct{})

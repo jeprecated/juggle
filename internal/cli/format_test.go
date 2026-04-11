@@ -24,12 +24,12 @@ func TestIterationHeader(t *testing.T) {
 		}
 	})
 
-	t.Run("unlimited iterations", func(t *testing.T) {
+	t.Run("infinite iterations", func(t *testing.T) {
 		var buf bytes.Buffer
 		f := NewLoopFormatter(&buf)
 		f.IterationHeader(3, 0, "", "")
-		if !strings.Contains(buf.String(), "Iteration 3/unlimited") {
-			t.Errorf("got %q, want unlimited", buf.String())
+		if !strings.Contains(buf.String(), "Iteration 3/∞") {
+			t.Errorf("got %q, want infinity symbol", buf.String())
 		}
 	})
 
@@ -248,6 +248,34 @@ func TestCmdHookMarker(t *testing.T) {
 		f.CmdHookMarker("cmd-before", "true")
 		if strings.Contains(buf.String(), "\033[") {
 			t.Errorf("non-TTY output contains ANSI codes: %q", buf.String())
+		}
+	})
+}
+
+func TestPollWait(t *testing.T) {
+	t.Run("non-TTY prints single line", func(t *testing.T) {
+		var buf bytes.Buffer
+		shutdown := make(chan struct{})
+		got := pollWait(&buf, "Waiting for tasks", 50*time.Millisecond, shutdown)
+		if got {
+			t.Error("expected false (timeout), got true (shutdown)")
+		}
+		if !strings.Contains(buf.String(), "Waiting for tasks") {
+			t.Errorf("expected message in output, got %q", buf.String())
+		}
+		lines := strings.Count(buf.String(), "\n")
+		if lines != 1 {
+			t.Errorf("expected 1 line, got %d", lines)
+		}
+	})
+
+	t.Run("shutdown interrupts wait", func(t *testing.T) {
+		var buf bytes.Buffer
+		shutdown := make(chan struct{})
+		close(shutdown)
+		got := pollWait(&buf, "Waiting", 10*time.Second, shutdown)
+		if !got {
+			t.Error("expected true (shutdown), got false")
 		}
 	})
 }

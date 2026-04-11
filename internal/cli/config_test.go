@@ -118,7 +118,7 @@ func TestApplyFileConfig_OverridesUnchangedFlags(t *testing.T) {
 		flags.model = origModel
 	})
 
-	flags.iterations = 10
+	flags.iterations = 0
 	flags.model = "sonnet"
 
 	five := 5

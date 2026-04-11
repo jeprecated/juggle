@@ -273,11 +273,8 @@ func runServeCmd(cmd *cobra.Command, args []string) error {
 	if tty, ttyCleanup, ttyErr := openTTYKeypress(); ttyErr == nil {
 		color := isColorEnabled(cfg.Stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		waitKeypress := StartKeypressListener(tty, trigger, color, cfg.Stderr)
-		defer func() {
-			ttyCleanup()
-			waitKeypress()
-		}()
+		_ = StartKeypressListener(tty, trigger, color, cfg.Stderr)
+		defer ttyCleanup()
 	}
 
 	addr := fmt.Sprintf("%s:%d", serveSpecificFlags.bind, serveSpecificFlags.port)
