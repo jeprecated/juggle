@@ -1,6 +1,7 @@
 package pipeline_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/ohare93/juggle/internal/pipeline"
@@ -217,6 +218,78 @@ func TestNormalize_exactlyOneLoopBodyAgent_ok(t *testing.T) {
 	p := minimalPipeline()
 	if err := pipeline.Normalize(p); err != nil {
 		t.Fatalf("expected no error for valid pipeline; got %v", err)
+	}
+}
+
+func TestNormalize_appliesDefaults(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Defaults: pipeline.Defaults{Provider: "claude", Model: "sonnet"},
+		Nodes: []pipeline.Node{
+			{Name: "a", Kind: pipeline.NodeKindAgent, Event: pipeline.EventLoopBody, Agent: &pipeline.AgentSpec{Prompt: "test"}},
+			{Name: "b", Kind: pipeline.NodeKindAgent, Event: pipeline.EventRunEnd, Agent: &pipeline.AgentSpec{Prompt: "test", Provider: "codex"}},
+			{Name: "c", Kind: pipeline.NodeKindCmd, Event: pipeline.EventRunStart, Cmd: &pipeline.CmdSpec{Command: "echo"}},
+		},
+	}
+	if err := pipeline.Normalize(p); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Node "a" should inherit defaults.
+	if p.Nodes[0].Agent.Provider != "claude" {
+		t.Errorf("node a provider: want %q, got %q", "claude", p.Nodes[0].Agent.Provider)
+	}
+	if p.Nodes[0].Agent.Model != "sonnet" {
+		t.Errorf("node a model: want %q, got %q", "sonnet", p.Nodes[0].Agent.Model)
+	}
+	// Node "b" has explicit provider, should keep it; model should inherit.
+	if p.Nodes[1].Agent.Provider != "codex" {
+		t.Errorf("node b provider: want %q, got %q", "codex", p.Nodes[1].Agent.Provider)
+	}
+	if p.Nodes[1].Agent.Model != "sonnet" {
+		t.Errorf("node b model: want %q, got %q", "sonnet", p.Nodes[1].Agent.Model)
+	}
+}
+
+func TestNormalize_rejectsInvalidFailurePolicy(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Nodes: []pipeline.Node{
+			{Name: "a", Kind: pipeline.NodeKindAgent, Event: pipeline.EventLoopBody, OnFailure: "banana", Agent: &pipeline.AgentSpec{Prompt: "test"}},
+		},
+	}
+	err := pipeline.Normalize(p)
+	if err == nil {
+		t.Fatal("expected error for invalid on_failure policy")
+	}
+	if !strings.Contains(err.Error(), "banana") {
+		t.Errorf("expected error to mention %q, got: %v", "banana", err)
+	}
+}
+
+func TestNormalize_rejectsInvalidNodeKind(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Nodes: []pipeline.Node{
+			{Name: "bad", Kind: "script", Event: pipeline.EventLoopBody},
+		},
+	}
+	err := pipeline.Normalize(p)
+	if err == nil {
+		t.Fatal("expected error for invalid node kind")
+	}
+	if !strings.Contains(err.Error(), "script") {
+		t.Errorf("expected error to mention %q, got: %v", "script", err)
+	}
+}
+
+func TestNormalize_emptyEventDefaultsToLoopBody(t *testing.T) {
+	p := &pipeline.Pipeline{
+		Nodes: []pipeline.Node{
+			{Name: "main", Kind: pipeline.NodeKindAgent, Agent: &pipeline.AgentSpec{Prompt: "test"}},
+		},
+	}
+	if err := pipeline.Normalize(p); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p.Nodes[0].Event != pipeline.EventLoopBody {
+		t.Errorf("expected event %q, got %q", pipeline.EventLoopBody, p.Nodes[0].Event)
 	}
 }
 

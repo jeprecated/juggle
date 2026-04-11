@@ -9,6 +9,7 @@ func Normalize(p *Pipeline) error {
 	if err := validateUniqueNames(p); err != nil {
 		return err
 	}
+	applyDefaults(p)
 	insertImplicitDeps(p)
 	if err := validateKindPayloads(p); err != nil {
 		return err
@@ -19,10 +20,33 @@ func Normalize(p *Pipeline) error {
 	if err := validateAfterTargets(p); err != nil {
 		return err
 	}
+	if err := validateFailurePolicies(p); err != nil {
+		return err
+	}
 	if err := detectCycles(p); err != nil {
 		return err
 	}
 	return validateLoopBodyInvariant(p)
+}
+
+// applyDefaults propagates Pipeline.Defaults to agent nodes that omit provider
+// or model, and defaults empty events to EventLoopBody.
+func applyDefaults(p *Pipeline) {
+	for i := range p.Nodes {
+		n := &p.Nodes[i]
+		if n.Event == "" {
+			n.Event = EventLoopBody
+		}
+		if n.Agent == nil {
+			continue
+		}
+		if n.Agent.Provider == "" && p.Defaults.Provider != "" {
+			n.Agent.Provider = p.Defaults.Provider
+		}
+		if n.Agent.Model == "" && p.Defaults.Model != "" {
+			n.Agent.Model = p.Defaults.Model
+		}
+	}
 }
 
 // insertImplicitDeps sets After on each node that has no explicit After and is
@@ -61,6 +85,8 @@ func validateKindPayloads(p *Pipeline) error {
 			if n.Cmd == nil {
 				return fmt.Errorf("node %q has kind %q but no cmd spec", n.Name, n.Kind)
 			}
+		default:
+			return fmt.Errorf("node %q has invalid kind %q", n.Name, n.Kind)
 		}
 	}
 	return nil
@@ -89,6 +115,15 @@ func validateAfterTargets(p *Pipeline) error {
 			if depIdx >= i {
 				return fmt.Errorf("node %q has forward dependency on %q", n.Name, dep)
 			}
+		}
+	}
+	return nil
+}
+
+func validateFailurePolicies(p *Pipeline) error {
+	for _, n := range p.Nodes {
+		if n.OnFailure != "" && !n.OnFailure.Valid() {
+			return fmt.Errorf("node %q has invalid on_failure %q", n.Name, n.OnFailure)
 		}
 	}
 	return nil
