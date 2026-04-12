@@ -1463,3 +1463,54 @@ func TestRunLoop_RetryPrompt_EmptyWhenNotSet(t *testing.T) {
 		t.Errorf("prompts should be identical without retry-prompt, got:\n  %q\n  %q", mock.Calls[0].Prompt, mock.Calls[1].Prompt)
 	}
 }
+
+func TestRunLoop_Continue_FirstIterationOnly(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{},
+		&agent.RunResult{},
+		&agent.RunResult{},
+	)
+	cfg := Config{
+		Content:         "do work",
+		Iterations:      3,
+		ContinueSession: true,
+		Runner:          mock,
+		Stderr:          &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(mock.Calls) != 3 {
+		t.Fatalf("expected 3 calls, got %d", len(mock.Calls))
+	}
+	if !mock.Calls[0].Continue {
+		t.Error("expected Continue=true on iteration 1")
+	}
+	if mock.Calls[1].Continue {
+		t.Error("did not expect Continue=true on iteration 2")
+	}
+	if mock.Calls[2].Continue {
+		t.Error("did not expect Continue=true on iteration 3")
+	}
+}
+
+func TestRunLoop_Continue_DefaultOff(t *testing.T) {
+	mock := agent.NewMockRunner(
+		&agent.RunResult{},
+		&agent.RunResult{},
+	)
+	cfg := Config{
+		Content:    "do work",
+		Iterations: 2,
+		Runner:     mock,
+		Stderr:     &bytes.Buffer{},
+	}
+	if err := RunLoop(cfg); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for i, call := range mock.Calls {
+		if call.Continue {
+			t.Errorf("iteration %d: did not expect Continue=true when flag not set", i+1)
+		}
+	}
+}

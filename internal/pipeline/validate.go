@@ -179,8 +179,8 @@ func validateLoopBodyInvariant(p *Pipeline) error {
 			count++
 		}
 	}
-	if count != 1 {
-		return fmt.Errorf("pipeline must have exactly one agent node with event=loop-body; got %d", count)
+	if count < 1 {
+		return fmt.Errorf("pipeline must have at least one agent node with event=loop-body; got %d", count)
 	}
 	return nil
 }

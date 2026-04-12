@@ -77,6 +77,7 @@ type RunOptions struct {
 	MCPConfig         string          // path to MCP server config file (Claude-specific)
 	PassthroughArgs   []string        // extra flags appended verbatim to the agent CLI command
 	CommandOverride   string          // override the provider binary name (e.g. "cc" instead of "claude")
+	Continue          bool            // pass --continue to the provider (resume last session; Claude-specific)
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

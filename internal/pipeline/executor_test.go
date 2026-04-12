@@ -49,7 +49,7 @@ func execCmdNode(name string, event pipeline.Event, command string) pipeline.Nod
 }
 
 // normalizedPipeline builds a pipeline with the given nodes and normalizes it.
-// All pipelines must have exactly one loop-body agent node.
+// All pipelines must have at least one loop-body agent node.
 func normalizedPipeline(t *testing.T, iterations int, nodes ...pipeline.Node) *pipeline.Pipeline {
 	t.Helper()
 	p := &pipeline.Pipeline{Iterations: iterations, Nodes: nodes}
@@ -939,5 +939,87 @@ func TestExecutor_PerNodeProvider_UnknownProviderError(t *testing.T) {
 	exec := pipeline.NewExecutor(p, cfg)
 	if err := exec.Run(); err == nil {
 		t.Fatal("expected error for unknown provider, got nil")
+	}
+}
+
+// --- multi-root DAG tests ---
+
+func TestExecutor_MultiRootDAG_AllNodesExecute(t *testing.T) {
+	dir := t.TempDir()
+	fileA := filepath.Join(dir, "a")
+	fileB := filepath.Join(dir, "b")
+	fileC := filepath.Join(dir, "c")
+	fileD := filepath.Join(dir, "d")
+	fileE := filepath.Join(dir, "e")
+
+	runner := agent.NewMockRunner(okResult(), okResult())
+
+	// Diamond DAG: A‖B → C, D → E
+	// A and B are parallel agent roots, C depends on A, D depends on B, E depends on C and D.
+	// Agent nodes create marker files so cmd nodes can verify ordering.
+	p := normalizedPipeline(t, 1,
+		pipeline.Node{
+			Name:     "A",
+			Kind:     pipeline.NodeKindAgent,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Agent:    &pipeline.AgentSpec{Prompt: "root A"},
+		},
+		pipeline.Node{
+			Name:     "B",
+			Kind:     pipeline.NodeKindAgent,
+			Event:    pipeline.EventLoopBody,
+			Parallel: true,
+			Agent:    &pipeline.AgentSpec{Prompt: "root B"},
+		},
+		pipeline.Node{
+			Name:     "create-a",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			After:    []string{"A"},
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileA)},
+		},
+		pipeline.Node{
+			Name:     "create-b",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			After:    []string{"B"},
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileB)},
+		},
+		pipeline.Node{
+			Name:     "C",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			After:    []string{"create-a"},
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileC)},
+		},
+		pipeline.Node{
+			Name:     "D",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			After:    []string{"create-b"},
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileD)},
+		},
+		pipeline.Node{
+			Name:     "E",
+			Kind:     pipeline.NodeKindCmd,
+			Event:    pipeline.EventLoopBody,
+			After:    []string{"C", "D"},
+			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileE)},
+		},
+	)
+
+	exec := pipeline.NewExecutor(p, baseExecCfg(runner))
+	if err := exec.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(runner.Calls) != 2 {
+		t.Errorf("expected 2 runner calls (A + B), got %d", len(runner.Calls))
+	}
+	for _, f := range []string{fileA, fileB, fileC, fileD, fileE} {
+		if _, err := os.Stat(f); os.IsNotExist(err) {
+			t.Errorf("expected file %s to exist (node did not run)", f)
+		}
 	}
 }

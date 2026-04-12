@@ -122,6 +122,11 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 	}
 
 	args = append(args, "--output-format", "stream-json", "--verbose")
+
+	if opts.Continue {
+		args = append(args, "--continue")
+	}
+
 	args = append(args, "-p", "-")
 
 	args = append(args, opts.PassthroughArgs...)
@@ -161,6 +166,10 @@ func claudeInteractiveSpec(opts RunOptions) commandSpec {
 
 	if opts.Prompt != "" {
 		args = append(args, opts.Prompt)
+	}
+
+	if opts.Continue {
+		args = append(args, "--continue")
 	}
 
 	return commandSpec{

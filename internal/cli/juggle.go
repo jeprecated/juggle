@@ -110,7 +110,9 @@ type Config struct {
 	Workers           int                     // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
 	WorkDir           string                  // Working directory for agent spawning (empty = juggle's cwd)
 	Resume            bool                    // Resume from last completed iteration recorded in --log file
+	ContinueSession   bool                    // Pass --continue to the provider on the first iteration (resumes last session)
 	Dashboard         bool                    // Show TUI dashboard for watch workers (auto-enabled for glob watch)
+	OnTouch           bool                    // Re-process files on mtime change (touch) in addition to new files
 	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
@@ -223,6 +225,7 @@ var flags struct {
 	workdir         string
 	noConfig        bool
 	resume          bool
+	continueSession bool
 	channels        string
 	extraArgs       []string
 	command         string
@@ -233,6 +236,7 @@ var watchFlags struct {
 	dirs      []string
 	workers   int
 	dashboard bool
+	onTouch   bool
 }
 
 func init() {
@@ -280,6 +284,7 @@ func init() {
 	pf.Lookup("extra").Shorthand = "X"
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
+	pf.BoolVar(&flags.continueSession, "continue", false, "pass --continue to the provider on the first iteration (resumes last session)")
 
 	// Hide less-common flags to reduce noise in default help output
 	_ = pf.MarkHidden("fuzz")
@@ -292,7 +297,7 @@ func init() {
 	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt", "resume"} {
 		setFlagGroup(pf, name, "Loop Control")
 	}
-	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
+	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra", "continue"} {
 		setFlagGroup(pf, name, "Agent Configuration")
 	}
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
@@ -307,7 +312,8 @@ func init() {
 	wf.StringArrayVar(&watchFlags.dirs, "dir", nil, "additional watch directory (repeatable)")
 	wf.IntVar(&watchFlags.workers, "workers", 1, "number of concurrent watch workers")
 	wf.BoolVar(&watchFlags.dashboard, "dashboard", false, "show TUI dashboard for watch workers (default on for glob watch)")
-	for _, name := range []string{"dir", "workers", "dashboard"} {
+	wf.BoolVar(&watchFlags.onTouch, "on-touch", false, "trigger on file touch (mtime change) in addition to new files; allows watching a single file as a trigger")
+	for _, name := range []string{"dir", "workers", "dashboard", "on-touch"} {
 		setFlagGroup(wf, name, "Watch Mode")
 	}
 
@@ -342,10 +348,14 @@ var completionCmd = &cobra.Command{
 }
 
 var watchCmd = &cobra.Command{
-	Use:   "watch <dir> [prompt-content...]",
+	Use:   "watch <dir|file> [prompt-content...]",
 	Short: "Watch a directory for task files and run the agent on each",
 	Long: `Watch a directory for task files. The first positional argument is the watch
 directory; remaining positional arguments are prompt content (@file references supported).
+
+With --on-touch, also re-process files whose modification time changes (touch events).
+When the target is a file instead of a directory, --on-touch watches that single file
+as a trigger: each touch runs an agent iteration with the provided prompt.
 
 Additional watch directories can be added with --dir (repeatable).`,
 	Example: `  # Watch a directory, run 5 iterations per task
@@ -355,7 +365,13 @@ Additional watch directories can be added with --dir (repeatable).`,
   juggle watch ./tasks/ @rules.md --dir ./more-tasks/
 
   # Watch with multiple workers and dashboard
-  juggle watch ./tasks/ --workers 4 --dashboard`,
+  juggle watch ./tasks/ --workers 4 --dashboard
+
+  # Watch a single file as a trigger
+  juggle watch ./trigger.lock "run the deploy" --on-touch
+
+  # Re-process touched files in a directory
+  juggle watch ./tasks/ @rules.md --on-touch`,
 	Args: cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return runWatchSubcmd(cmd, args)
@@ -562,6 +578,7 @@ func run(cmd *cobra.Command, args []string) error {
 		RetryPrompt:         retryPrompt,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
+		ContinueSession:   flags.continueSession,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -724,6 +741,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		Watch:             watchDirs,
 		Workers:           watchFlags.workers,
 		Dashboard:         watchFlags.dashboard,
+		OnTouch:           watchFlags.onTouch,
 		Iterations:        flags.iterations,
 		Model:             flags.model,
 		Provider:          flags.provider,
@@ -763,6 +781,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		RetryPrompt:         retryPrompt,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
+		ContinueSession:   flags.continueSession,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -1049,6 +1068,7 @@ func RunLoop(cfg Config) error {
 		printVerboseProviderCommand(cfg, prompt)
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, "", -1)...)
+		opts.Continue = cfg.ContinueSession && i == startFrom
 
 		result, err := cfg.Runner.Run(opts)
 		if err != nil {

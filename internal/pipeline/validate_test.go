@@ -202,15 +202,15 @@ func TestNormalize_noLoopBodyAgent_returnsError(t *testing.T) {
 	}
 }
 
-func TestNormalize_multipleLoopBodyAgents_returnsError(t *testing.T) {
+func TestNormalize_multipleLoopBodyAgents_ok(t *testing.T) {
 	p := &pipeline.Pipeline{
 		Nodes: []pipeline.Node{
 			agentNode("first"),
 			{Name: "second", Kind: pipeline.NodeKindAgent, Event: pipeline.EventLoopBody, Agent: &pipeline.AgentSpec{Prompt: "also"}},
 		},
 	}
-	if err := pipeline.Normalize(p); err == nil {
-		t.Fatal("expected error for multiple loop-body agents")
+	if err := pipeline.Normalize(p); err != nil {
+		t.Fatalf("expected success for multiple loop-body agents; got %v", err)
 	}
 }
 
