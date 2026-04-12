@@ -23,9 +23,9 @@ type rawAgent struct {
 	Provider        string   `toml:"provider"`
 	Model           string   `toml:"model"`
 	Plan            bool     `toml:"plan"`
-	Trust           bool     `toml:"trust"`
-	SystemPrompt    string   `toml:"system_prompt"`
-	AllowedTools    []string `toml:"allowed_tools"`
+	Trust               bool     `toml:"trust"`
+	SystemPrompt        string   `toml:"system_prompt"`
+	AllowedTools        []string `toml:"allowed_tools"`
 	DisallowedTools []string `toml:"disallowed_tools"`
 	MaxTurns        int      `toml:"max_turns"`
 	MCPConfig       string   `toml:"mcp_config"`
@@ -131,9 +131,9 @@ func agentToNode(ra rawAgent) (Node, error) {
 			Provider:        ra.Provider,
 			Model:           ra.Model,
 			Plan:            ra.Plan,
-			Trust:           ra.Trust,
-			SystemPrompt:    ra.SystemPrompt,
-			AllowedTools:    ra.AllowedTools,
+			Trust:               ra.Trust,
+			SystemPrompt:        ra.SystemPrompt,
+			AllowedTools:        ra.AllowedTools,
 			DisallowedTools: ra.DisallowedTools,
 			MaxTurns:        ra.MaxTurns,
 			MCPConfig:       ra.MCPConfig,

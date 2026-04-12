@@ -105,7 +105,7 @@ type Config struct {
 	RetryBackoffs     []time.Duration         // Override retry backoffs for testing (nil = use defaults)
 	PassthroughArgs   []string                // Extra flags passed verbatim to the agent CLI after juggle's own flags
 	AgentCmd          string                  // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
-	SystemPrompt      string                  // Optional system prompt appended to the agent's system prompt
+	SystemPrompt          string                  // Optional system prompt (replaces agent default)
 	RetryPrompt       string                  // Extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)
 	Workers           int                     // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
 	WorkDir           string                  // Working directory for agent spawning (empty = juggle's cwd)
@@ -218,7 +218,7 @@ var flags struct {
 	onFailure       string
 	retries         int
 	agentCmd        string
-	systemPrompt    string
+	systemPrompt        string
 	retryPrompt     string
 	workdir         string
 	noConfig        bool
@@ -270,7 +270,7 @@ func init() {
 	pf.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
 	pf.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 	pf.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
-	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "append text to the agent's system prompt (@file resolves via JUGGLE_PROMPTS)")
+	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "replace the agent's default system prompt (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
 	pf.StringVar(&flags.channels, "channels", "", "development channels for agent (e.g. server:claude-peers)")
@@ -554,9 +554,9 @@ func run(cmd *cobra.Command, args []string) error {
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
 		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
-		AgentCmd:          flags.agentCmd,
-		SystemPrompt:      systemPrompt,
-		RetryPrompt:       retryPrompt,
+		AgentCmd:            flags.agentCmd,
+		SystemPrompt:        systemPrompt,
+		RetryPrompt:         retryPrompt,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 	}
@@ -754,9 +754,9 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
 		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
-		AgentCmd:          flags.agentCmd,
-		SystemPrompt:      systemPrompt,
-		RetryPrompt:       retryPrompt,
+		AgentCmd:            flags.agentCmd,
+		SystemPrompt:        systemPrompt,
+		RetryPrompt:         retryPrompt,
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 	}

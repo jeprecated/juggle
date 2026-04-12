@@ -104,7 +104,7 @@ func parseNodeBlock(b nodeBlock) (Node, error) {
 		model           string
 		plan            bool
 		trust           bool
-		systemPrompt    string
+		systemPrompt        string
 		allowedTools    []string
 		disallowedTools []string
 		maxTurns        int
@@ -169,8 +169,8 @@ func parseNodeBlock(b nodeBlock) (Node, error) {
 			Provider:        provider,
 			Model:           model,
 			Plan:            plan,
-			Trust:           trust,
-			SystemPrompt:    systemPrompt,
+			Trust:               trust,
+			SystemPrompt:        systemPrompt,
 			AllowedTools:    allowedTools,
 			DisallowedTools: disallowedTools,
 			MaxTurns:        maxTurns,

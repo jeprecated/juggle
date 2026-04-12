@@ -85,7 +85,7 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 	}
 
 	if opts.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", opts.SystemPrompt)
+		args = append(args, "--system-prompt", opts.SystemPrompt)
 	}
 
 	if opts.Model != "" {
@@ -144,7 +144,7 @@ func claudeInteractiveSpec(opts RunOptions) commandSpec {
 	}
 
 	if opts.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", opts.SystemPrompt)
+		args = append(args, "--system-prompt", opts.SystemPrompt)
 	}
 
 	if opts.Model != "" {

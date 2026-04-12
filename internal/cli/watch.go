@@ -801,7 +801,7 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		MaxTurns:          cfg.MaxTurns,
 		MCPConfig:         cfg.MCPConfig,
 		PassthroughArgs:   cfg.PassthroughArgs,
-		SystemPrompt:      cfg.SystemPrompt,
+		SystemPrompt:        cfg.SystemPrompt,
 		WorkingDir:        cfg.WorkDir,
 	}
 }

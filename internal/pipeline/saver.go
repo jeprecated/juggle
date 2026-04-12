@@ -30,7 +30,7 @@ type saveAgent struct {
 	Model           string   `toml:"model,omitempty"`
 	Plan            bool     `toml:"plan,omitempty"`
 	Trust           bool     `toml:"trust,omitempty"`
-	SystemPrompt    string   `toml:"system_prompt,omitempty"`
+	SystemPrompt        string   `toml:"system_prompt,omitempty"`
 	AllowedTools    []string `toml:"allowed_tools,omitempty"`
 	DisallowedTools []string `toml:"disallowed_tools,omitempty"`
 	MaxTurns        int      `toml:"max_turns,omitempty"`

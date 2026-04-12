@@ -105,9 +105,9 @@ type AgentSpec struct {
 	Provider        string
 	Model           string
 	Plan            bool
-	Trust           bool
-	SystemPrompt    string
-	AllowedTools    []string
+	Trust               bool
+	SystemPrompt        string
+	AllowedTools        []string
 	DisallowedTools []string
 	MaxTurns        int
 	MCPConfig       string

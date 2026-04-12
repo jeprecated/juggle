@@ -71,7 +71,7 @@ func AdaptConfigToPipeline(cfg Config) *pipeline.Pipeline {
 			Model:           cfg.Model,
 			Plan:            cfg.Plan,
 			Trust:           cfg.Trust,
-			SystemPrompt:    cfg.SystemPrompt,
+			SystemPrompt:        cfg.SystemPrompt,
 			AllowedTools:    cfg.AllowedTools,
 			DisallowedTools: cfg.DisallowedTools,
 			MaxTurns:        cfg.MaxTurns,

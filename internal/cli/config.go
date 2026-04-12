@@ -61,7 +61,7 @@ type FileConfig struct {
 	OnFailure    *string  `toml:"on_failure"`
 	Retries      *int     `toml:"retries"`
 	RetryPrompt  *string  `toml:"retry_prompt"`
-	SystemPrompt *string  `toml:"system_prompt"`
+	SystemPrompt        *string `toml:"system_prompt"`
 	Workers      *int     `toml:"workers"`
 	WorkDir      *string  `toml:"workdir"`
 	Channels     *string  `toml:"channels"`

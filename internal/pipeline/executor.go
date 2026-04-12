@@ -397,7 +397,7 @@ func (e *Executor) runAgentNode(ctx context.Context, n Node, iteration int) erro
 		Mode:            provider.ModeHeadless,
 		Permission:      perm,
 		Timeout:         n.Timeout,
-		SystemPrompt:    spec.SystemPrompt,
+		SystemPrompt:        spec.SystemPrompt,
 		Model:           spec.Model,
 		WorkingDir:      workDir,
 		AllowedTools:    spec.AllowedTools,
