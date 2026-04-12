@@ -99,9 +99,10 @@ func copilotHeadlessArgs(opts RunOptions) []string {
 
 func copilotHeadlessSpec(opts RunOptions) commandSpec {
 	return commandSpec{
-		Binary: "copilot",
-		Args:   copilotHeadlessArgs(opts),
-		Prompt: opts.Prompt,
+		Binary:          "copilot",
+		Args:            copilotHeadlessArgs(opts),
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 
@@ -122,9 +123,10 @@ func copilotInteractiveSpec(opts RunOptions) commandSpec {
 	}
 
 	return commandSpec{
-		Binary: "copilot",
-		Args:   args,
-		Prompt: opts.Prompt,
+		Binary:          "copilot",
+		Args:            args,
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 

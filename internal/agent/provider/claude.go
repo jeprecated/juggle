@@ -131,10 +131,11 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 
 func claudeHeadlessSpec(opts RunOptions) commandSpec {
 	return commandSpec{
-		Binary:      "claude",
-		Args:        claudeHeadlessArgs(opts),
-		Prompt:      opts.Prompt,
-		PromptStdin: true,
+		Binary:          "claude",
+		Args:            claudeHeadlessArgs(opts),
+		Prompt:          opts.Prompt,
+		PromptStdin:     true,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 
@@ -163,9 +164,10 @@ func claudeInteractiveSpec(opts RunOptions) commandSpec {
 	}
 
 	return commandSpec{
-		Binary: "claude",
-		Args:   args,
-		Prompt: opts.Prompt,
+		Binary:          "claude",
+		Args:            args,
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 

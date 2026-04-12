@@ -21,8 +21,12 @@ func PreviewCommand(p Provider, opts RunOptions) (CommandPreview, error) {
 		return CommandPreview{}, err
 	}
 
+	binary := spec.Binary
+	if spec.CommandOverride != "" {
+		binary = spec.CommandOverride
+	}
 	return CommandPreview{
-		Binary:      spec.Binary,
+		Binary:      binary,
 		Args:        append([]string(nil), spec.Args...),
 		Prompt:      spec.Prompt,
 		PromptStdin: spec.PromptStdin,
@@ -64,7 +68,7 @@ func previewSpec(p Provider, opts RunOptions) (commandSpec, error) {
 		if err != nil {
 			return commandSpec{}, err
 		}
-		return commandSpec{Binary: binary, Args: args, Prompt: opts.Prompt}, nil
+		return commandSpec{Binary: binary, Args: args, Prompt: opts.Prompt, CommandOverride: opts.CommandOverride}, nil
 	default:
 		return commandSpec{}, fmt.Errorf("unsupported provider preview type %T", p)
 	}

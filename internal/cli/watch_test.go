@@ -31,11 +31,6 @@ func runWatchTaskMultipleTimes(cfg Config, taskFile string, maxIter int, state *
 				// File completed, stop iterating
 				return nil
 			}
-			if errors.Is(err, errRetryIteration) {
-				// Retry same iteration (don't increment i)
-				i--
-				continue
-			}
 			return err
 		}
 	}
@@ -386,6 +381,22 @@ func TestBuildRunOptions_WorkDir(t *testing.T) {
 	}
 }
 
+func TestBuildRunOptions_CommandOverride(t *testing.T) {
+	cfg := Config{Command: "cc"}
+	opts := buildRunOptions(cfg, "prompt")
+	if opts.CommandOverride != "cc" {
+		t.Errorf("expected CommandOverride='cc', got %q", opts.CommandOverride)
+	}
+}
+
+func TestBuildRunOptions_CommandOverrideEmpty(t *testing.T) {
+	cfg := Config{}
+	opts := buildRunOptions(cfg, "prompt")
+	if opts.CommandOverride != "" {
+		t.Errorf("expected empty CommandOverride, got %q", opts.CommandOverride)
+	}
+}
+
 func TestBuildRunOptions_PassthroughArgs(t *testing.T) {
 	cfg := Config{PassthroughArgs: []string{"--max-turns", "50", "--allowedTools", "Bash"}}
 	opts := buildRunOptions(cfg, "prompt")
@@ -394,6 +405,24 @@ func TestBuildRunOptions_PassthroughArgs(t *testing.T) {
 	}
 	if opts.PassthroughArgs[0] != "--max-turns" || opts.PassthroughArgs[1] != "50" {
 		t.Errorf("unexpected passthrough args: %v", opts.PassthroughArgs)
+	}
+}
+
+func TestRun_CommandFlag_RejectsMissingBinary(t *testing.T) {
+	cfg := Config{
+		Content:  "test",
+		Command:  "nonexistent_binary_12345",
+		Provider: "claude",
+		Stdout:   &bytes.Buffer{},
+		Stderr:   &bytes.Buffer{},
+		Runner:   agent.NewMockRunner(&agent.RunResult{}),
+	}
+	err := Run(cfg)
+	if err == nil {
+		t.Fatal("expected error for nonexistent --command binary")
+	}
+	if !strings.Contains(err.Error(), "not found on PATH") {
+		t.Errorf("expected PATH error, got: %v", err)
 	}
 }
 
@@ -544,16 +573,14 @@ func TestRunWatchTask_OnFailureContinue_SkipsToNext(t *testing.T) {
 	}
 }
 
-func TestRunWatchTask_OnFailureRetry_RetriesBeforeAdvancing(t *testing.T) {
+func TestRunWatchTask_OnFailureRetry_WaitsBeforeAdvancing(t *testing.T) {
 	dir := t.TempDir()
 	taskPath := filepath.Join(dir, "task.md")
 	os.WriteFile(taskPath, []byte("task content"), 0644)
 
 	mock := agent.NewMockRunner(
-		&agent.RunResult{ExitCode: 1}, // iter 1, attempt 1
-		&agent.RunResult{ExitCode: 1}, // iter 1, retry 1
-		&agent.RunResult{ExitCode: 0}, // iter 1, retry 2 (success)
-		&agent.RunResult{ExitCode: 0}, // iter 2
+		&agent.RunResult{ExitCode: 1}, // iter 1, fails
+		&agent.RunResult{ExitCode: 0}, // iter 2, succeeds
 	)
 	var stderr bytes.Buffer
 	cfg := Config{
@@ -570,11 +597,11 @@ func TestRunWatchTask_OnFailureRetry_RetriesBeforeAdvancing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(mock.Calls) != 4 {
-		t.Errorf("expected 4 calls (fail+retry+success+iter2), got %d", len(mock.Calls))
+	if len(mock.Calls) != 2 {
+		t.Errorf("expected 2 calls (one per iteration), got %d", len(mock.Calls))
 	}
-	if !strings.Contains(stderr.String(), "retrying") {
-		t.Errorf("expected 'retrying' in stderr, got: %s", stderr.String())
+	if !strings.Contains(stderr.String(), "next attempt in") {
+		t.Errorf("expected 'next attempt in' in stderr, got: %s", stderr.String())
 	}
 }
 

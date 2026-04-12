@@ -76,6 +76,7 @@ type RunOptions struct {
 	MaxTurns          int             // cap tool-use turns per iteration (0 = provider default)
 	MCPConfig         string          // path to MCP server config file (Claude-specific)
 	PassthroughArgs   []string        // extra flags appended verbatim to the agent CLI command
+	CommandOverride   string          // override the provider binary name (e.g. "cc" instead of "claude")
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

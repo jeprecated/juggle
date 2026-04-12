@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/rand"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -59,8 +60,6 @@ func retryBackoffFor(attempt int, overrides []time.Duration) time.Duration {
 // errCostGuard is returned by runWatchTask when --max-cost threshold is exceeded.
 var errCostGuard = errors.New("cost guard triggered")
 
-// errRetryIteration is returned by runWatchTask when quota/rate limit requires retrying the same iteration.
-var errRetryIteration = errors.New("retry iteration (quota/rate limit)")
 
 // errFileGone is returned by runWatchTask when the task file no longer exists (agent completed it).
 var errFileGone = errors.New("task file completed")
@@ -105,6 +104,7 @@ type Config struct {
 	RetryBackoffs     []time.Duration         // Override retry backoffs for testing (nil = use defaults)
 	PassthroughArgs   []string                // Extra flags passed verbatim to the agent CLI after juggle's own flags
 	AgentCmd          string                  // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
+	Command         string                  // Override binary name for the selected provider (e.g. "cc" instead of "claude")
 	SystemPrompt          string                  // Optional system prompt (replaces agent default)
 	RetryPrompt       string                  // Extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)
 	Workers           int                     // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
@@ -225,6 +225,7 @@ var flags struct {
 	resume          bool
 	channels        string
 	extraArgs       []string
+	command         string
 }
 
 // watchFlags holds flags specific to the watch subcommand.
@@ -270,6 +271,7 @@ func init() {
 	pf.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
 	pf.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 	pf.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
+	pf.StringVar(&flags.command, "command", "", "override the provider binary name (e.g. \"cc\" to use a wrapper script)")
 	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "replace the agent's default system prompt (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
@@ -290,7 +292,7 @@ func init() {
 	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt", "resume"} {
 		setFlagGroup(pf, name, "Loop Control")
 	}
-	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "workdir", "channels", "extra"} {
+	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
 		setFlagGroup(pf, name, "Agent Configuration")
 	}
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
@@ -555,6 +557,7 @@ func run(cmd *cobra.Command, args []string) error {
 		Retries:           flags.retries,
 		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
 		AgentCmd:            flags.agentCmd,
+		Command:           flags.command,
 		SystemPrompt:        systemPrompt,
 		RetryPrompt:         retryPrompt,
 		WorkDir:           flags.workdir,
@@ -755,6 +758,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		Retries:           flags.retries,
 		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
 		AgentCmd:            flags.agentCmd,
+		Command:           flags.command,
 		SystemPrompt:        systemPrompt,
 		RetryPrompt:         retryPrompt,
 		WorkDir:           flags.workdir,
@@ -842,6 +846,15 @@ func Run(cfg Config) error {
 
 	if cfg.Retries < 0 {
 		return fmt.Errorf("--retries must be non-negative")
+	}
+
+	if cfg.Command != "" {
+		if _, err := exec.LookPath(cfg.Command); err != nil {
+			return fmt.Errorf("--command: binary %q not found on PATH", cfg.Command)
+		}
+		if provider.Type(cfg.Provider) == provider.TypeCustom {
+			return fmt.Errorf("--command and --provider custom are mutually exclusive (use --agent-cmd for custom providers)")
+		}
 	}
 
 	if cfg.Workers > 1 && len(cfg.Watch) == 0 {

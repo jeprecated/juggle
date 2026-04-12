@@ -88,9 +88,10 @@ func opencodeHeadlessArgs(opts RunOptions) []string {
 
 func opencodeHeadlessSpec(opts RunOptions) commandSpec {
 	return commandSpec{
-		Binary: "opencode",
-		Args:   opencodeHeadlessArgs(opts),
-		Prompt: opts.Prompt,
+		Binary:          "opencode",
+		Args:            opencodeHeadlessArgs(opts),
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 
@@ -113,9 +114,10 @@ func opencodeInteractiveSpec(opts RunOptions) commandSpec {
 	args = append(args, opts.PassthroughArgs...)
 
 	return commandSpec{
-		Binary: "opencode",
-		Args:   args,
-		Prompt: opts.Prompt,
+		Binary:          "opencode",
+		Args:            args,
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 

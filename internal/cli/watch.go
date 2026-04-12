@@ -222,7 +222,6 @@ func RunWatch(cfg Config) error {
 		default:
 		}
 
-	retryIteration:
 		taskPath, err := ScanWatchDir(watchDir)
 		if err != nil {
 			return err
@@ -276,10 +275,6 @@ func RunWatch(cfg Config) error {
 				// File completed by agent, continue to next iteration
 				continue
 			}
-			if errors.Is(err, errRetryIteration) {
-				// Quota/rate limit hit, retry same iteration (don't increment i)
-				goto retryIteration
-			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
@@ -322,7 +317,6 @@ func RunWatch(cfg Config) error {
 // stats is updated with completed iteration metrics (may be nil).
 // Returns special errors:
 //   - errFileGone: file was deleted by the agent, task is complete
-//   - errRetryIteration: quota/rate limit hit, caller should retry with backoff
 //   - errCostGuard: max-cost threshold exceeded
 //   - other errors: task failed, logged by caller
 func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *runTaskState, stats *runStats) error {
@@ -352,7 +346,7 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 		onFailure = OnFailureStop
 	}
 
-		// Run agent-before; skip iteration on failure
+	// Run agent-before; skip iteration on failure
 	if cfg.AgentBefore != "" {
 		formatter.PhaseAgentHeader("before")
 		if cfg.Verbose {
@@ -393,11 +387,11 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 		content = cfg.RetryPrompt + "\n\n" + content
 	}
 	prompt := BuildWatchPrompt(string(contents), content, taskRelPath, iteration, maxIter)
-		printVerboseProviderCommand(cfg, prompt)
+	printVerboseProviderCommand(cfg, prompt)
 	opts := buildRunOptions(cfg, prompt)
 	opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, iteration, maxIter, cfg.Label, cfg.Model, cfg.Provider, taskFile, -1)...)
 
-		result, err := cfg.Runner.Run(opts)
+	result, err := cfg.Runner.Run(opts)
 	if err != nil {
 		return fmt.Errorf("runner error on iteration %d of %s: %w", iteration, taskRelPath, err)
 	}
@@ -407,7 +401,7 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 		return fmt.Errorf("agent exhausted overload retries on iteration %d of %s", iteration, taskRelPath)
 	}
 
-	// Handle quota/usage exhaustion — signal retry
+	// Handle quota/usage exhaustion — wait and continue to next iteration
 	if result.QuotaExhausted {
 		var wait time.Duration
 		var waitMsg string
@@ -438,11 +432,11 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 			return ErrInterrupted
 		}
 
-		// Signal retry same iteration
-		return errRetryIteration
+		// Quota recovered, continue to next iteration
+		return nil
 	}
 
-	// Handle rate limiting — signal retry
+	// Handle rate limiting — wait and continue to next iteration
 	if result.RateLimited {
 		wait := state.backoff
 		if result.RetryAfter > 0 {
@@ -462,10 +456,10 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 		}
 
 		state.incrementBackoff()
-		return errRetryIteration
+		return nil
 	}
 
-		// Handle non-zero exit code according to --on-failure mode
+	// Handle non-zero exit code according to --on-failure mode
 	if result.ExitCode != 0 {
 		switch onFailure {
 		case OnFailureStop:
@@ -478,7 +472,7 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 			}
 			if state.retryCount < maxRetries {
 				bd := retryBackoffFor(state.retryCount, cfg.RetryBackoffs)
-				fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), retrying in %v (attempt %d/%d)\n",
+				fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), next attempt in %v (attempt %d/%d)\n",
 					iteration, result.ExitCode, bd, state.retryCount+1, maxRetries)
 				select {
 				case <-time.After(bd):
@@ -486,12 +480,10 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 					return ErrInterrupted
 				}
 				state.retryCount++
-				return errRetryIteration
+			} else {
+				state.retryCount = 0
+				fmt.Fprintf(cfg.Stderr, "iteration %d failed after %d retries, continuing\n", iteration, maxRetries)
 			}
-			// Retries exhausted — treat as a continued failure
-			state.retryCount = 0
-			fmt.Fprintf(cfg.Stderr, "iteration %d failed after %d retries, continuing\n", iteration, maxRetries)
-			// fall through to consecutive failure tracking
 
 		case OnFailureContinue:
 			fmt.Fprintf(cfg.Stderr, "iteration %d failed (exit code %d), continuing\n", iteration, result.ExitCode)
@@ -509,7 +501,7 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 
 	// Reset backoff, accumulate stats, and print status
 	state.resetBackoff()
-		if stats != nil {
+	if stats != nil {
 		stats.iterations++
 		stats.inputTokens += result.InputTokens
 		stats.outputTokens += result.OutputTokens
@@ -672,7 +664,6 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 		default:
 		}
 
-	retryIteration:
 		taskPath, err := coord.claim(cfg.Watch[0])
 		if err != nil {
 			return err
@@ -726,11 +717,6 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, pollDelay time.Duration
 			if errors.Is(err, errFileGone) {
 				// File completed by agent, continue to next iteration
 				continue
-			}
-			if errors.Is(err, errRetryIteration) {
-				// Quota/rate limit hit, retry same iteration (don't increment i)
-				coord.release(taskPath)
-				goto retryIteration
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
@@ -803,5 +789,6 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		PassthroughArgs:   cfg.PassthroughArgs,
 		SystemPrompt:        cfg.SystemPrompt,
 		WorkingDir:        cfg.WorkDir,
+		CommandOverride:  cfg.Command,
 	}
 }

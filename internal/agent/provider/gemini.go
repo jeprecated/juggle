@@ -89,9 +89,10 @@ func geminiHeadlessArgs(opts RunOptions) []string {
 
 func geminiHeadlessSpec(opts RunOptions) commandSpec {
 	return commandSpec{
-		Binary: "gemini",
-		Args:   geminiHeadlessArgs(opts),
-		Prompt: opts.Prompt,
+		Binary:          "gemini",
+		Args:            geminiHeadlessArgs(opts),
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 
@@ -112,9 +113,10 @@ func geminiInteractiveSpec(opts RunOptions) commandSpec {
 	}
 
 	return commandSpec{
-		Binary: "gemini",
-		Args:   args,
-		Prompt: opts.Prompt,
+		Binary:          "gemini",
+		Args:            args,
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 

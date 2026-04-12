@@ -6,10 +6,11 @@ import "os/exec"
 // Built-in providers act like hard-coded custom providers by translating
 // provider-agnostic RunOptions into this explicit command shape.
 type commandSpec struct {
-	Binary      string
-	Args        []string
-	Prompt      string
-	PromptStdin bool
+	Binary           string
+	Args             []string
+	Prompt           string
+	PromptStdin      bool
+	CommandOverride  string // when set, replaces Binary in the exec.Command call
 }
 
 func appendFlag(args []string, flag, value string) []string {
@@ -23,5 +24,9 @@ func appendFlag(args []string, flag, value string) []string {
 }
 
 func commandForSpec(spec commandSpec) *exec.Cmd {
-	return exec.Command(spec.Binary, spec.Args...)
+	binary := spec.Binary
+	if spec.CommandOverride != "" {
+		binary = spec.CommandOverride
+	}
+	return exec.Command(binary, spec.Args...)
 }

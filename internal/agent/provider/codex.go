@@ -87,9 +87,10 @@ func codexHeadlessArgs(opts RunOptions) []string {
 
 func codexHeadlessSpec(opts RunOptions) commandSpec {
 	return commandSpec{
-		Binary: "codex",
-		Args:   codexHeadlessArgs(opts),
-		Prompt: opts.Prompt,
+		Binary:          "codex",
+		Args:            codexHeadlessArgs(opts),
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 
@@ -110,9 +111,10 @@ func codexInteractiveSpec(opts RunOptions) commandSpec {
 	}
 
 	return commandSpec{
-		Binary: "codex",
-		Args:   args,
-		Prompt: opts.Prompt,
+		Binary:          "codex",
+		Args:            args,
+		Prompt:          opts.Prompt,
+		CommandOverride: opts.CommandOverride,
 	}
 }
 

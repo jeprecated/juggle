@@ -298,7 +298,6 @@ func runGlobWatchSerial(cfg Config) error {
 		default:
 		}
 
-	retryIteration:
 		dirs, err := expandGlobDirs(cfg.WorkDir, globPattern)
 		if err != nil {
 			return fmt.Errorf("expanding glob %q: %w", globPattern, err)
@@ -367,10 +366,6 @@ func runGlobWatchSerial(cfg Config) error {
 			if errors.Is(err, errFileGone) {
 				// File completed by agent, continue to next iteration
 				continue
-			}
-			if errors.Is(err, errRetryIteration) {
-				// Quota/rate limit hit, retry same iteration (don't increment i)
-				goto retryIteration
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
@@ -489,7 +484,6 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		default:
 		}
 
-	retryIteration:
 		dirs := getDirs()
 		taskPath, err := coord.claimFromDirs(dirs)
 		if err != nil {
@@ -547,11 +541,6 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 			if errors.Is(err, errFileGone) {
 				// File completed by agent, continue to next iteration
 				continue
-			}
-			if errors.Is(err, errRetryIteration) {
-				// Quota/rate limit hit, retry same iteration (don't increment i)
-				coord.release(taskPath)
-				goto retryIteration
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
@@ -668,7 +657,6 @@ func runMultiWatchSerial(cfg Config) error {
 		default:
 		}
 
-	retryIteration:
 		dirs := getDirsForWatch(cfg.Watch, cfg.WorkDir)
 		taskPath, err := coord.claimFromDirs(dirs)
 		if err != nil {
@@ -727,11 +715,6 @@ func runMultiWatchSerial(cfg Config) error {
 			if errors.Is(err, errFileGone) {
 				// File completed by agent, continue to next iteration
 				continue
-			}
-			if errors.Is(err, errRetryIteration) {
-				// Quota/rate limit hit, retry same iteration (don't increment i)
-				coord.release(taskPath)
-				goto retryIteration
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
