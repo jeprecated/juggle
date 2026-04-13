@@ -264,8 +264,8 @@ func TestWriteSummaryLog_JSONFields(t *testing.T) {
 		t.Fatalf("failed to parse summary JSON: %v\nraw: %s", err, data)
 	}
 
-	if entry["type"] != "summary" {
-		t.Errorf("expected type=summary, got: %v", entry["type"])
+	if entry["type"] != "run_end" {
+		t.Errorf("expected type=run_end, got: %v", entry["type"])
 	}
 	if v, ok := entry["iterations"].(float64); !ok || int(v) != 3 {
 		t.Errorf("expected iterations=3, got: %v", entry["iterations"])
@@ -488,13 +488,13 @@ func TestRunLoop_LogsTokensAndExitCode(t *testing.T) {
 
 	// First line is the iteration entry
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	if len(lines) < 1 {
-		t.Fatal("expected at least one log line")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least two log lines (iter_start + iter_end), got %d:\n%s", len(lines), string(data))
 	}
 
 	var entry map[string]interface{}
-	if err := json.Unmarshal([]byte(lines[0]), &entry); err != nil {
-		t.Fatalf("failed to parse log line: %v", err)
+	if err := json.Unmarshal([]byte(lines[1]), &entry); err != nil {
+		t.Fatalf("failed to parse iter_end line: %v", err)
 	}
 
 	requiredFields := []string{"run_id", "timestamp", "iteration", "duration_ms", "input_tokens", "output_tokens", "exit_code", "rate_limited", "error"}
@@ -543,18 +543,18 @@ func TestRunLoop_LogsSummaryLine(t *testing.T) {
 	}
 
 	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
-	// Should have 2 iteration lines + 1 summary line
-	if len(lines) != 3 {
-		t.Fatalf("expected 3 lines (2 iterations + 1 summary), got %d:\n%s", len(lines), string(data))
+	// Should have 2 iter_start + 2 iter_end + 1 run_end = 5 lines
+	if len(lines) != 5 {
+		t.Fatalf("expected 5 lines (2 iter_start + 2 iter_end + 1 run_end), got %d:\n%s", len(lines), string(data))
 	}
 
 	var summary map[string]interface{}
-	if err := json.Unmarshal([]byte(lines[2]), &summary); err != nil {
-		t.Fatalf("failed to parse summary line: %v", err)
+	if err := json.Unmarshal([]byte(lines[4]), &summary); err != nil {
+		t.Fatalf("failed to parse run_end line: %v", err)
 	}
 
-	if summary["type"] != "summary" {
-		t.Errorf("expected type=summary, got: %v", summary["type"])
+	if summary["type"] != "run_end" {
+		t.Errorf("expected type=run_end, got: %v", summary["type"])
 	}
 	if v, ok := summary["iterations"].(float64); !ok || int(v) != 2 {
 		t.Errorf("expected iterations=2, got: %v", summary["iterations"])

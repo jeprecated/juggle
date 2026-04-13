@@ -508,6 +508,13 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 	opts := buildRunOptions(cfg, prompt)
 	opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, iteration, maxIter, cfg.Label, cfg.Model, cfg.Provider, taskFile, -1)...)
 
+	writeIterStartLog(cfg.Log, iterStartLogEntry{
+		RunID:     cfg.RunID,
+		Iteration: iteration,
+		WorkerID:  cfg.WorkerID,
+		TaskFile:  taskFile,
+	})
+
 	result, err := cfg.Runner.Run(opts)
 	if err != nil {
 		return fmt.Errorf("runner error on iteration %d of %s: %w", iteration, taskRelPath, err)
@@ -629,6 +636,24 @@ func runWatchTask(cfg Config, taskFile string, iteration, maxIter int, state *ru
 		cfg.OnIterDone(iteration, maxIter)
 	}
 
+	var errStr *string
+	if result.Error != nil {
+		s := result.Error.Error()
+		errStr = &s
+	}
+	writeIterationLog(cfg.Log, iterationLogEntry{
+		RunID:        cfg.RunID,
+		Iteration:    iteration,
+		WorkerID:     cfg.WorkerID,
+		DurationMs:   time.Since(start).Milliseconds(),
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
+		CacheTokens:  result.CacheTokens,
+		ExitCode:     result.ExitCode,
+		RateLimited:  result.RateLimited,
+		Error:        errStr,
+	})
+
 	// Run agent-after; log warning on failure but continue
 	if cfg.AgentAfter != "" {
 		formatter.PhaseAgentHeader("after")
@@ -725,6 +750,7 @@ func runWatchWorkers(cfg Config) error {
 		go func(workerID int) {
 			defer wg.Done()
 			workerCfg := cfg
+			workerCfg.WorkerID = workerID + 1
 			if dash != nil {
 				logFile, closeLog := dash.openWorkerLog(workerID)
 				defer closeLog()

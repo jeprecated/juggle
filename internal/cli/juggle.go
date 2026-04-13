@@ -113,6 +113,7 @@ type Config struct {
 	ContinueSession   bool                    // Pass --continue to the provider on the first iteration (resumes last session)
 	Dashboard         bool                    // Show TUI dashboard for watch workers (auto-enabled for glob watch)
 	OnTouch           bool                    // Re-process files on mtime change (touch) in addition to new files
+	WorkerID          int                     // Worker identifier for log entries (0 = main/no worker, -1 = omit)
 	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
@@ -226,6 +227,7 @@ var flags struct {
 	noConfig        bool
 	resume          bool
 	continueSession bool
+	noLog           bool
 	channels        string
 	extraArgs       []string
 	command         string
@@ -283,6 +285,7 @@ func init() {
 	pf.StringArrayVar(&flags.extraArgs, "extra", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
 	pf.Lookup("extra").Shorthand = "X"
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
+	pf.BoolVar(&flags.noLog, "no-log", false, "disable automatic session logging")
 	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
 	pf.BoolVar(&flags.continueSession, "continue", false, "pass --continue to the provider on the first iteration (resumes last session)")
 
@@ -303,7 +306,7 @@ func init() {
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
 		setFlagGroup(pf, name, "Lifecycle Hooks")
 	}
-	for _, name := range []string{"dry-run", "verbose", "log", "label"} {
+	for _, name := range []string{"dry-run", "verbose", "log", "no-log", "label"} {
 		setFlagGroup(pf, name, "Output")
 	}
 
@@ -843,6 +846,22 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	return Run(cfg)
 }
 
+// ensureDefaultLog sets cfg.Log to the default log path when empty and --no-log
+// is not set. Creates the log directory if needed.
+func ensureDefaultLog(cfg *Config) {
+	if cfg.Log != "" || flags.noLog {
+		return
+	}
+	path := DefaultLogPath()
+	if path == "" {
+		return
+	}
+	if err := EnsureLogDir(path); err != nil {
+		return
+	}
+	cfg.Log = path
+}
+
 // Run is the main entry point for juggle execution.
 func Run(cfg Config) error {
 	if cfg.Stdout == nil {
@@ -854,6 +873,8 @@ func Run(cfg Config) error {
 	if cfg.RunID == "" {
 		cfg.RunID = generateRunID()
 	}
+
+	ensureDefaultLog(&cfg)
 
 	if cfg.Plan && cfg.Trust {
 		return fmt.Errorf("--plan and --trust are mutually exclusive")
@@ -906,6 +927,16 @@ func Run(cfg Config) error {
 		printDryRun(cfg, cfg.Stdout)
 		return nil
 	}
+
+	writeRunStartLog(cfg.Log, runStartLogEntry{
+		RunID:    cfg.RunID,
+		Provider: cfg.Provider,
+		Model:    cfg.Model,
+		Label:    cfg.Label,
+		Prompt:   truncate(cfg.Content, 80),
+		Workers:  cfg.Workers,
+		Watch:    cfg.Watch,
+	})
 
 	if len(cfg.Watch) > 0 {
 		return RunWatch(cfg)
@@ -1069,6 +1100,11 @@ func RunLoop(cfg Config) error {
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, "", -1)...)
 		opts.Continue = cfg.ContinueSession && i == startFrom
+
+		writeIterStartLog(cfg.Log, iterStartLogEntry{
+			RunID:     cfg.RunID,
+			Iteration: i,
+		})
 
 		result, err := cfg.Runner.Run(opts)
 		if err != nil {

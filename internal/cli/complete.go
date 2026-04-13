@@ -175,6 +175,27 @@ func addAliasCompletions(promptsDir, partial string, seen map[string]struct{}, c
 	})
 }
 
+func completeLogRunIDs(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	logPath := DefaultLogPath()
+	if logPath == "" {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	runs, err := parseLogFile(logPath)
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	var completions []string
+	for id := range runs {
+		if strings.HasPrefix(id, toComplete) {
+			completions = append(completions, id)
+		}
+	}
+	if len(completions) == 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return completions, cobra.ShellCompDirectiveNoSpace | cobra.ShellCompDirectiveNoFileComp
+}
+
 // findPromptDirs walks root and returns all subdirectory paths whose base name
 // contains "prompts" (case-insensitive). Hidden directories are skipped entirely.
 func findPromptDirs(root string) []string {
