@@ -408,21 +408,21 @@ func TestBuildRunOptions_PassthroughArgs(t *testing.T) {
 	}
 }
 
-func TestRun_CommandFlag_RejectsMissingBinary(t *testing.T) {
+func TestRun_CommandFlag_ShellAliasAllowed(t *testing.T) {
+	// --command values are resolved through the user's shell at execution time,
+	// so they are not validated against PATH at config time.
 	cfg := Config{
-		Content:  "test",
-		Command:  "nonexistent_binary_12345",
-		Provider: "claude",
-		Stdout:   &bytes.Buffer{},
-		Stderr:   &bytes.Buffer{},
-		Runner:   agent.NewMockRunner(&agent.RunResult{}),
+		Content:    "test",
+		Command:    "my_custom_alias",
+		Provider:   "claude",
+		Iterations: 1,
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+		Runner:     agent.NewMockRunner(&agent.RunResult{Output: "ok"}),
 	}
 	err := Run(cfg)
-	if err == nil {
-		t.Fatal("expected error for nonexistent --command binary")
-	}
-	if !strings.Contains(err.Error(), "not found on PATH") {
-		t.Errorf("expected PATH error, got: %v", err)
+	if err != nil {
+		t.Errorf("--command should not reject non-PATH values (shell resolves them), got: %v", err)
 	}
 }
 

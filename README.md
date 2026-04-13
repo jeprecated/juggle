@@ -171,6 +171,53 @@ Juggle wraps AI coding CLIs. Supported providers:
 | Gemini CLI | `gemini` | `--provider gemini` |
 | Custom | any | `--agent-cmd "your-cli"` |
 
+Some juggle flags map to provider-native equivalents automatically. Flags marked `--` emit a warning and are skipped — use passthrough flags instead.
+
+| Flag | Claude | Codex | Copilot | Gemini | OpenCode |
+|------|--------|-------|---------|--------|----------|
+| `--allowed-tools` | yes | -- | yes | -- | -- |
+| `--disallowed-tools` | yes | -- | yes | -- | -- |
+| `--max-turns` | yes | -- | yes | -- | -- |
+| `--mcp-config` | yes | -- | -- | -- | -- |
+| `--hooks-file` | yes | -- | -- | -- | -- |
+
+## Passthrough flags
+
+Pass provider-native flags directly to the agent CLI with `-X` (repeatable) or `--` (everything after):
+
+```bash
+# -X appends one arg at a time
+juggle -X "--json" "summarise this repo" --provider codex
+
+# -- passes everything after it verbatim
+juggle "fix tests" -- --max-turns 50 --allowedTools Bash,Read
+```
+
+Both forms are equivalent. `-X` is useful in config files and scripts where `--` can be awkward.
+
+**Codex examples** — Codex uses `-c` for runtime config overrides:
+
+```bash
+# Override the model
+juggle --provider codex -X "-c" -X 'model="o3"' "refactor auth"
+
+# Get structured JSON output
+juggle --provider codex -X "--json" -X "-o" -X "result.txt" "extract API endpoints"
+
+# Set sandbox policy
+juggle --provider codex "fix tests" -- -c 'sandbox_permissions=["disk-full-read-access"]'
+```
+
+**Claude examples:**
+
+```bash
+# Limit tools and turns via passthrough (equivalent to juggle's --allowed-tools and --max-turns)
+juggle "fix tests" -- --allowedTools Bash,Read --max-turns 50
+
+# Pass a custom MCP config
+juggle -X "--mcp-config" -X "./mcp.json" "check the database"
+```
+
 ## Environment variables
 
 Juggle exposes loop state to every spawned agent process. Prompts, skills, and MCP servers can read these.

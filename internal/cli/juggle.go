@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/rand"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -104,7 +103,7 @@ type Config struct {
 	RetryBackoffs     []time.Duration         // Override retry backoffs for testing (nil = use defaults)
 	PassthroughArgs   []string                // Extra flags passed verbatim to the agent CLI after juggle's own flags
 	AgentCmd          string                  // Command template for --provider custom (e.g. "my-agent --prompt {prompt}")
-	Command         string                  // Override binary name for the selected provider (e.g. "cc" instead of "claude")
+	Command         string                  // Override provider command; runs through $SHELL so aliases/functions work
 	SystemPrompt          string                  // Optional system prompt (replaces agent default)
 	RetryPrompt       string                  // Extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)
 	Workers           int                     // Number of concurrent watch workers (0 or 1 = serial, >=2 = parallel)
@@ -277,7 +276,7 @@ func init() {
 	pf.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
 	pf.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry (default 2)")
 	pf.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
-	pf.StringVar(&flags.command, "command", "", "override the provider binary name (e.g. \"cc\" to use a wrapper script)")
+	pf.StringVar(&flags.command, "command", "", "override the provider command (runs through $SHELL, so aliases and functions work)")
 	pf.StringVar(&flags.systemPrompt, "system-prompt", "", "replace the agent's default system prompt (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
@@ -889,9 +888,6 @@ func Run(cfg Config) error {
 	}
 
 	if cfg.Command != "" {
-		if _, err := exec.LookPath(cfg.Command); err != nil {
-			return fmt.Errorf("--command: binary %q not found on PATH", cfg.Command)
-		}
 		if provider.Type(cfg.Provider) == provider.TypeCustom {
 			return fmt.Errorf("--command and --provider custom are mutually exclusive (use --agent-cmd for custom providers)")
 		}
