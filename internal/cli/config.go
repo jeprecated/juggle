@@ -63,6 +63,7 @@ type FileConfig struct {
 	RetryPrompt  *string  `toml:"retry_prompt"`
 	SystemPrompt        *string `toml:"system_prompt"`
 	Workers      *int     `toml:"workers"`
+	Every        *string  `toml:"every"`
 	WorkDir      *string  `toml:"workdir"`
 	Channels     *string  `toml:"channels"`
 	ExtraArgs    []string `toml:"extra_args"`
@@ -214,6 +215,14 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 	}
 	if cfg.Workers != nil {
 		set("workers", func() { watchFlags.workers = *cfg.Workers })
+	}
+	if cfg.Every != nil {
+		set("every", func() {
+			d, err := time.ParseDuration(*cfg.Every)
+			if err == nil {
+				watchFlags.every = d
+			}
+		})
 	}
 	if cfg.WorkDir != nil {
 		set("workdir", func() { flags.workdir = *cfg.WorkDir })

@@ -357,11 +357,15 @@ func RunWatch(cfg Config) error {
 		}
 
 		if taskPath == "" && triggerMsg == "" {
-			if dash != nil {
-				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+			if cfg.Every > 0 {
+				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+			} else {
+				if dash != nil {
+					dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
+				}
+				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Watching %s", watchDir), pollDelay, cfg.Shutdown, wakeCh(&cfg))
+				continue
 			}
-			pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Watching %s", watchDir), pollDelay, cfg.Shutdown, wakeCh(&cfg))
-			continue
 		}
 
 		taskCfg := cfg
@@ -369,8 +373,10 @@ func RunWatch(cfg Config) error {
 		if triggerMsg != "" {
 			filename = "trigger"
 			taskCfg.Content = taskCfg.Content + "\n\n" + FormatTrigger(triggerMsg)
-		} else {
+		} else if taskPath != "" {
 			filename = filepath.Base(taskPath)
+		} else {
+			filename = "every"
 		}
 		if dash != nil {
 			logFile := dash.logFiles[0]
@@ -395,8 +401,10 @@ func RunWatch(cfg Config) error {
 
 		if triggerMsg != "" {
 			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
-		} else {
+		} else if taskPath != "" {
 			err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		} else {
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
 		}
 		if dash != nil {
 			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
@@ -1008,11 +1016,15 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 		}
 
 		if taskPath == "" && triggerMsg == "" {
-			if dash != nil {
-				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+			if cfg.Every > 0 {
+				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+			} else {
+				if dash != nil {
+					dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
+				}
+				pollWaitWithWake(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown, wakeCh(&cfg))
+				continue
 			}
-			pollWaitWithWake(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown, wakeCh(&cfg))
-			continue
 		}
 
 		var filename string
@@ -1020,8 +1032,10 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 		if triggerMsg != "" {
 			filename = "trigger"
 			taskCfg.Content = taskCfg.Content + "\n\n" + FormatTrigger(triggerMsg)
-		} else {
+		} else if taskPath != "" {
 			filename = filepath.Base(taskPath)
+		} else {
+			filename = "every"
 		}
 		if dash != nil {
 			dash.dash.Update(workerID, WorkerState{
@@ -1047,11 +1061,13 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 
 		if triggerMsg != "" {
 			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
-		} else {
+		} else if taskPath != "" {
 			err = runWatchTask(cfg, taskPath, i, max, taskState, &stats)
+		} else {
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
 		}
 		if err != nil {
-			if triggerMsg == "" {
+			if taskPath != "" {
 				coord.release(taskPath)
 			}
 			if dash != nil {
@@ -1072,7 +1088,7 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
-		if triggerMsg == "" {
+		if taskPath != "" {
 			coord.release(taskPath)
 		}
 		if dash != nil {
@@ -1203,8 +1219,12 @@ func runTouchWatch(cfg Config) error {
 		}
 
 		if info.ModTime().Equal(lastMod) && !dirty {
-			pollWait(cfg.Stderr, fmt.Sprintf("Watching %s", triggerFile), pollDelay, cfg.Shutdown)
-			continue
+			if cfg.Every > 0 {
+				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+			} else {
+				pollWait(cfg.Stderr, fmt.Sprintf("Watching %s", triggerFile), pollDelay, cfg.Shutdown)
+				continue
+			}
 		}
 
 		dirty = false
