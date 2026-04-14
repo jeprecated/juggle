@@ -63,6 +63,16 @@ var errCostGuard = errors.New("cost guard triggered")
 // errFileGone is returned by runWatchTask when the task file no longer exists (agent completed it).
 var errFileGone = errors.New("task file completed")
 
+// activeSessionID holds the effective ID of the currently registered session.
+// It is set by setupSession and used by forceCleanupSession for signal-handler cleanup.
+var activeSessionID string
+
+func forceCleanupSession() {
+	if activeSessionID != "" {
+		UnregisterSession(activeSessionID)
+	}
+}
+
 // Config holds all CLI configuration for a juggle run.
 type Config struct {
 	Content           string                  // Resolved prompt content (joined)
@@ -631,6 +641,7 @@ func run(cmd *cobra.Command, args []string) error {
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
 		forceCancel()
+		forceCleanupSession()
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(130)
 	}()
@@ -835,6 +846,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
 		forceCancel()
+		forceCleanupSession()
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(130)
 	}()
@@ -904,6 +916,7 @@ func setupSession(cfg *Config, stderr io.Writer, sessionType string) {
 	wc := NewWakeChecker(eid)
 	cfg.WakeChecker = wc
 	go wc.Run()
+	activeSessionID = eid
 }
 
 // teardownSession unregisters the session and stops the wake checker.
@@ -915,6 +928,7 @@ func teardownSession(cfg *Config) {
 		cfg.WakeChecker.Stop()
 	}
 	UnregisterSession(cfg.EffectiveID)
+	activeSessionID = ""
 }
 
 // wakeCh returns the wake signal channel, or nil if no session is registered.
@@ -1164,7 +1178,9 @@ func RunLoop(cfg Config) error {
 			if retryCount > 0 && cfg.RetryPrompt != "" {
 				content = cfg.RetryPrompt + "\n\n" + content
 			}
-			if trigMsg, trigErr := readTriggerFromSession(&cfg); trigErr == nil && trigMsg != "" {
+			if trigMsg, trigErr := readTriggerFromSession(&cfg); trigErr != nil {
+				fmt.Fprintf(cfg.Stderr, "warning: reading trigger: %v\n", trigErr)
+			} else if trigMsg != "" {
 				content = content + "\n\n" + FormatTrigger(trigMsg)
 			}
 			prompt := BuildPrompt(content, i, max)

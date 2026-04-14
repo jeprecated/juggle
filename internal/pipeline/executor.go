@@ -93,6 +93,14 @@ func (e *Executor) Run() error {
 			return err
 		}
 
+		// Drain any pending wake signals.
+		if e.cfg.WakeCh != nil {
+			select {
+			case <-e.cfg.WakeCh:
+			default:
+			}
+		}
+
 		if err := e.runEvent(EventLoopStart, i); err != nil {
 			_ = e.runEvent(EventFailure, i)
 			return err

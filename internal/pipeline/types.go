@@ -77,7 +77,7 @@ type Pipeline struct {
 // set, consistent with Kind.
 type Node struct {
 	Name      string
-	ID        string // optional stable identifier for trigger targeting
+	ID        string // optional stable identifier for per-node trigger targeting (phase 2: not yet consumed)
 	Kind      NodeKind
 	Event     Event
 	After     []string // explicit dependency names; empty means implicit previous-node

@@ -336,12 +336,15 @@ func RunWatch(cfg Config) error {
 
 		var triggerMsg string
 		if cfg.EffectiveID != "" {
-			if msg, err := ReadTrigger(cfg.EffectiveID); err == nil && msg != "" {
+			if msg, err := ReadTrigger(cfg.EffectiveID); err != nil {
+				fmt.Fprintf(cfg.Stderr, "warning: reading trigger: %v\n", err)
+			} else if msg != "" {
 				triggerMsg = msg
 			}
 		}
 
 		var taskPath string
+		var err error
 		if triggerMsg == "" {
 			if cfg.OnTouch {
 				taskPath, err = touchTrack.scanTouchDir(watchDir)
@@ -984,7 +987,9 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 
 		var triggerMsg string
 		if cfg.EffectiveID != "" {
-			if msg, err := ReadTrigger(cfg.EffectiveID); err == nil && msg != "" {
+			if msg, err := ReadTrigger(cfg.EffectiveID); err != nil {
+				fmt.Fprintf(cfg.Stderr, "warning: reading trigger: %v\n", err)
+			} else if msg != "" {
 				triggerMsg = msg
 			}
 		}

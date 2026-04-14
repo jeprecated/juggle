@@ -264,6 +264,7 @@ func runServeCmd(cmd *cobra.Command, args []string) error {
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
 		forceCancel()
+		forceCleanupSession()
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(130)
 	}()

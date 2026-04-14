@@ -113,6 +113,7 @@ func runPipelineCmd(cmd *cobra.Command, args []string) error {
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
 		forceCancel()
+		forceCleanupSession()
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(130)
 	}()
@@ -130,10 +131,14 @@ func runPipelineCmd(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
 		} else {
 			fmt.Fprintf(os.Stderr, "session %q registered\n", eid)
+			activeSessionID = eid
 			wc := NewWakeChecker(eid)
 			go wc.Run()
-			defer wc.Stop()
-			defer UnregisterSession(eid)
+			defer func() {
+				wc.Stop()
+				UnregisterSession(eid)
+				activeSessionID = ""
+			}()
 
 			return executePipeline(p, pipeline.ExecutorConfig{
 				Runner:        runner,
