@@ -117,6 +117,41 @@ func runPipelineCmd(cmd *cobra.Command, args []string) error {
 		os.Exit(130)
 	}()
 
+	sessionType := "pipeline"
+	if flags.id != "" {
+		eid := EffectiveID(flags.id, workdir)
+		info := SessionInfo{
+			PID:       os.Getpid(),
+			Type:      sessionType,
+			WorkDir:   workdir,
+			StartedAt: time.Now().UTC().Format(time.RFC3339),
+		}
+		if err := RegisterSession(eid, info); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: %v\n", err)
+		} else {
+			fmt.Fprintf(os.Stderr, "session %q registered\n", eid)
+			wc := NewWakeChecker(eid)
+			go wc.Run()
+			defer wc.Stop()
+			defer UnregisterSession(eid)
+
+			return executePipeline(p, pipeline.ExecutorConfig{
+				Runner:        runner,
+				RunnerFactory: makeRunnerFactory(flags.agentCmd),
+				Stdout:        os.Stdout,
+				Stderr:        os.Stderr,
+				ForceCtx:      forceCtx,
+				Shutdown:      shutdown,
+				WorkDir:       workdir,
+				RunID:         generateRunID(),
+				SessionID:     eid,
+				WakeCh:        wc.WakeCh,
+				ReadTrigger:   ReadTrigger,
+				FormatTrigger: FormatTrigger,
+			})
+		}
+	}
+
 	return executePipeline(p, pipeline.ExecutorConfig{
 		Runner:        runner,
 		RunnerFactory: makeRunnerFactory(flags.agentCmd),

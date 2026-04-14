@@ -114,6 +114,9 @@ type Config struct {
 	OnTouch           bool                    // Re-process files on mtime change (touch) in addition to new files
 	WorkerID          int                     // Worker identifier for log entries (0 = main/no worker, -1 = omit)
 	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
+	ID                string                  // User-given session name (--id flag)
+	EffectiveID       string                  // Computed: <basedir>-<id>, set during registration
+	WakeChecker       *WakeChecker            // Background wake poller (nil when --id not set)
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -223,6 +226,7 @@ var flags struct {
 	systemPrompt        string
 	retryPrompt     string
 	workdir         string
+	id              string
 	noConfig        bool
 	resume          bool
 	continueSession bool
@@ -284,6 +288,7 @@ func init() {
 	pf.StringArrayVar(&flags.extraArgs, "extra", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
 	pf.Lookup("extra").Shorthand = "X"
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
+	pf.StringVar(&flags.id, "id", "", "session identifier for juggle trigger targeting")
 	pf.BoolVar(&flags.noLog, "no-log", false, "disable automatic session logging")
 	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
 	pf.BoolVar(&flags.continueSession, "continue", false, "pass --continue to the provider on the first iteration (resumes last session)")
@@ -305,7 +310,7 @@ func init() {
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
 		setFlagGroup(pf, name, "Lifecycle Hooks")
 	}
-	for _, name := range []string{"dry-run", "verbose", "log", "no-log", "label"} {
+	for _, name := range []string{"dry-run", "verbose", "log", "no-log", "label", "id"} {
 		setFlagGroup(pf, name, "Output")
 	}
 
@@ -581,6 +586,7 @@ func run(cmd *cobra.Command, args []string) error {
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 		ContinueSession:   flags.continueSession,
+		ID:                flags.id,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -624,7 +630,6 @@ func run(cmd *cobra.Command, args []string) error {
 		writeStopRequestedMessage(stderr, isColorEnabled(stderr))
 		shutdownOnce.Do(func() { close(shutdown) })
 		<-sigCh
-		// Second signal: cancel child context then exit
 		forceCancel()
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(130)
@@ -633,8 +638,9 @@ func run(cmd *cobra.Command, args []string) error {
 	cfg.Shutdown = shutdown
 	cfg.ForceCtx = forceCtx
 
-	// Set up keypress listener: pressing 'q' acts like the first Ctrl+C.
-	// Only active when stdin is a TTY; silently skipped otherwise.
+	setupSession(&cfg, stderr, "loop")
+	defer teardownSession(&cfg)
+
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
@@ -784,6 +790,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 		ContinueSession:   flags.continueSession,
+		ID:                flags.id,
 	}
 
 	// --agent-cmd auto-sets --provider custom
@@ -835,6 +842,9 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	cfg.Shutdown = shutdown
 	cfg.ForceCtx = forceCtx
 
+	setupSession(&cfg, stderr, "watch")
+	defer teardownSession(&cfg)
+
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
@@ -859,6 +869,69 @@ func ensureDefaultLog(cfg *Config) {
 		return
 	}
 	cfg.Log = path
+}
+
+// setupSession registers a juggle session when --id is set.
+// Starts the background WakeChecker goroutine.
+func setupSession(cfg *Config, stderr io.Writer, sessionType string) {
+	if cfg.ID == "" {
+		return
+	}
+	workdir := cfg.WorkDir
+	if workdir == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			workdir = cwd
+		}
+	}
+	eid := EffectiveID(cfg.ID, workdir)
+	cfg.EffectiveID = eid
+
+	info := SessionInfo{
+		PID:       os.Getpid(),
+		Type:      sessionType,
+		WatchDirs: cfg.Watch,
+		WorkDir:   workdir,
+		Prompt:    truncate(cfg.Content, 80),
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	if err := RegisterSession(eid, info); err != nil {
+		fmt.Fprintf(stderr, "warning: %v\n", err)
+		cfg.EffectiveID = ""
+		return
+	}
+	fmt.Fprintf(stderr, "session %q registered\n", eid)
+
+	wc := NewWakeChecker(eid)
+	cfg.WakeChecker = wc
+	go wc.Run()
+}
+
+// teardownSession unregisters the session and stops the wake checker.
+func teardownSession(cfg *Config) {
+	if cfg.EffectiveID == "" {
+		return
+	}
+	if cfg.WakeChecker != nil {
+		cfg.WakeChecker.Stop()
+	}
+	UnregisterSession(cfg.EffectiveID)
+}
+
+// wakeCh returns the wake signal channel, or nil if no session is registered.
+func wakeCh(cfg *Config) <-chan struct{} {
+	if cfg.WakeChecker == nil {
+		return nil
+	}
+	return cfg.WakeChecker.WakeCh
+}
+
+// readTriggerFromSession reads a trigger message from the session inbox.
+// Returns ("", nil) when no session or no trigger.
+func readTriggerFromSession(cfg *Config) (string, error) {
+	if cfg.EffectiveID == "" {
+		return "", nil
+	}
+	return ReadTrigger(cfg.EffectiveID)
 }
 
 // Run is the main entry point for juggle execution.
@@ -1091,6 +1164,9 @@ func RunLoop(cfg Config) error {
 			if retryCount > 0 && cfg.RetryPrompt != "" {
 				content = cfg.RetryPrompt + "\n\n" + content
 			}
+			if trigMsg, trigErr := readTriggerFromSession(&cfg); trigErr == nil && trigMsg != "" {
+				content = content + "\n\n" + FormatTrigger(trigMsg)
+			}
 			prompt := BuildPrompt(content, i, max)
 		printVerboseProviderCommand(cfg, prompt)
 		opts := buildRunOptions(cfg, prompt)
@@ -1320,16 +1396,19 @@ func RunLoop(cfg Config) error {
 			}
 		}
 
-		// Wait between iterations (skip after last), interruptible by shutdown
+		// Wait between iterations (skip after last), interruptible by shutdown or wake
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
 			d := computeDelay(cfg.Delay, cfg.Fuzz)
 			if d > 0 {
 				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
+				waitDone := time.After(d)
 				select {
-				case <-time.After(d):
+				case <-waitDone:
 				case <-cfg.Shutdown:
 					writeSummary(cfg, stats)
 					return ErrInterrupted
+				case <-wakeCh(&cfg):
+					fmt.Fprintf(cfg.Stderr, "wake signal received, starting next iteration\n")
 				}
 			}
 		}

@@ -67,6 +67,7 @@ type FileConfig struct {
 	Channels     *string  `toml:"channels"`
 	ExtraArgs    []string `toml:"extra_args"`
 	NoLog        *bool    `toml:"no_log"`
+	ID           *string  `toml:"id"`
 }
 
 // LoadConfig looks for a config file in cwd/juggle.toml, then ~/.config/juggle/config.toml.
@@ -225,6 +226,9 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 	}
 	if cfg.NoLog != nil {
 		set("no-log", func() { flags.noLog = *cfg.NoLog })
+	}
+	if cfg.ID != nil {
+		set("id", func() { flags.id = *cfg.ID })
 	}
 
 	if verbose && len(applied) > 0 {

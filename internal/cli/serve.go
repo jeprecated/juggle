@@ -247,6 +247,7 @@ func runServeCmd(cmd *cobra.Command, args []string) error {
 		WorkDir:           flags.workdir,
 		Dashboard:         watchFlags.dashboard,
 		Runner:            &agent.ProviderRunner{Provider: p},
+		ID:                flags.id,
 	}
 
 	shutdown := make(chan struct{})
@@ -269,6 +270,9 @@ func runServeCmd(cmd *cobra.Command, args []string) error {
 
 	cfg.Shutdown = shutdown
 	cfg.ForceCtx = forceCtx
+
+	setupSession(&cfg, cfg.Stderr, "watch")
+	defer teardownSession(&cfg)
 
 	if tty, ttyCleanup, ttyErr := openTTYKeypress(); ttyErr == nil {
 		color := isColorEnabled(cfg.Stderr)

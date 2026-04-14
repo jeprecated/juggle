@@ -11,6 +11,7 @@ import (
 // rawAgent is the TOML intermediate representation for an [[agent]] node.
 type rawAgent struct {
 	Name            string   `toml:"name"`
+	ID              string   `toml:"id"`
 	Prompt          string   `toml:"prompt"`
 	Event           string   `toml:"event"`
 	After           []string `toml:"after"`
@@ -35,6 +36,7 @@ type rawAgent struct {
 // rawCmd is the TOML intermediate representation for a [[cmd]] node.
 type rawCmd struct {
 	Name      string   `toml:"name"`
+	ID        string   `toml:"id"`
 	Command   string   `toml:"command"`
 	Event     string   `toml:"event"`
 	After     []string `toml:"after"`
@@ -120,6 +122,7 @@ func agentToNode(ra rawAgent) (Node, error) {
 
 	n := Node{
 		Name:     ra.Name,
+		ID:       ra.ID,
 		Kind:     NodeKindAgent,
 		After:    ra.After,
 		Parallel: ra.Parallel,
@@ -166,6 +169,7 @@ func cmdToNode(rc rawCmd) (Node, error) {
 
 	n := Node{
 		Name:     rc.Name,
+		ID:       rc.ID,
 		Kind:     NodeKindCmd,
 		After:    rc.After,
 		Parallel: rc.Parallel,

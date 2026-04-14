@@ -58,6 +58,60 @@ func pollWait(w io.Writer, msg string, delay time.Duration, shutdown <-chan stru
 	}
 }
 
+// pollWaitWithWake is like pollWait but also wakes on the optional wakeCh.
+func pollWaitWithWake(w io.Writer, msg string, delay time.Duration, shutdown <-chan struct{}, wake <-chan struct{}) bool {
+	isTTY := false
+	if f, ok := w.(*os.File); ok {
+		if info, err := f.Stat(); err == nil {
+			isTTY = info.Mode()&os.ModeCharDevice != 0
+		}
+	}
+
+	waitDone := func() <-chan struct{} {
+		ch := make(chan struct{})
+		go func() {
+			time.Sleep(delay)
+			close(ch)
+		}()
+		return ch
+	}
+
+	if !isTTY {
+		fmt.Fprintf(w, "%s\n", msg)
+		select {
+		case <-waitDone():
+			return false
+		case <-shutdown:
+			return true
+		case <-wake:
+			return false
+		}
+	}
+
+	tick := time.NewTicker(150 * time.Millisecond)
+	defer tick.Stop()
+	timeout := waitDone()
+	i := 0
+
+	for {
+		fmt.Fprintf(w, "\r%s%s %c%s\033[K", dimOn, msg, throbberFrames[i%len(throbberFrames)], dimOff)
+
+		select {
+		case <-tick.C:
+			i++
+		case <-timeout:
+			fmt.Fprint(w, "\r\033[K")
+			return false
+		case <-shutdown:
+			fmt.Fprint(w, "\r\033[K")
+			return true
+		case <-wake:
+			fmt.Fprint(w, "\r\033[K")
+			return false
+		}
+	}
+}
+
 // LoopFormatter prints iteration headers and status lines to stderr.
 // When the writer is a TTY, output uses dim gray ANSI styling.
 type LoopFormatter struct {

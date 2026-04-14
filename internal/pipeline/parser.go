@@ -88,6 +88,7 @@ func parseNodeBlock(b nodeBlock) (Node, error) {
 		retries   int
 		timeout   string
 		workdir   string
+		nodeID    string
 	)
 	fs.StringVar(&event, "event", "", "lifecycle event")
 	fs.StringArrayVar(&after, "after", nil, "explicit dependency on named node (repeatable)")
@@ -97,6 +98,7 @@ func parseNodeBlock(b nodeBlock) (Node, error) {
 	fs.IntVar(&retries, "retries", 0, "retry count")
 	fs.StringVar(&timeout, "timeout", "", "per-node timeout (e.g. 5m)")
 	fs.StringVar(&workdir, "workdir", "", "working directory")
+	fs.StringVar(&nodeID, "id", "", "stable identifier for trigger targeting")
 
 	// Kind-specific flags.
 	var (
@@ -138,6 +140,7 @@ func parseNodeBlock(b nodeBlock) (Node, error) {
 
 	node := Node{
 		Name:     name,
+		ID:       nodeID,
 		Kind:     NodeKind(b.kind),
 		After:    after,
 		Parallel: parallel,

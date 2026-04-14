@@ -50,6 +50,10 @@ type ExecutorConfig struct {
 	RunID         string
 	Label         string
 	RetryBackoffs []time.Duration // override retry backoffs (default: 5s, 15s, 30s)
+	SessionID     string          // effective session ID for trigger inbox (empty = no session)
+	WakeCh        <-chan struct{} // wake signal channel (nil = no wake checking)
+	ReadTrigger   func(sessionID string) (string, error) // reads and consumes trigger message from inbox
+	FormatTrigger func(message string) string              // wraps trigger message in XML tags
 }
 
 // Executor runs a validated pipeline end-to-end.
@@ -392,8 +396,19 @@ func (e *Executor) runAgentNode(ctx context.Context, n Node, iteration int) erro
 		workDir = e.cfg.WorkDir
 	}
 
+	prompt := spec.Prompt
+	if e.cfg.SessionID != "" && e.cfg.ReadTrigger != nil {
+		if msg, err := e.cfg.ReadTrigger(e.cfg.SessionID); err == nil && msg != "" {
+			if e.cfg.FormatTrigger != nil {
+				prompt = prompt + "\n\n" + e.cfg.FormatTrigger(msg)
+			} else {
+				prompt = prompt + "\n\n" + msg
+			}
+		}
+	}
+
 	opts := agent.RunOptions{
-		Prompt:          spec.Prompt,
+		Prompt:          prompt,
 		Mode:            provider.ModeHeadless,
 		Permission:      perm,
 		Timeout:         n.Timeout,

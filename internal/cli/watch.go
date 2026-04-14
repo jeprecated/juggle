@@ -334,26 +334,41 @@ func RunWatch(cfg Config) error {
 		default:
 		}
 
-		var taskPath string
-		if cfg.OnTouch {
-			taskPath, err = touchTrack.scanTouchDir(watchDir)
-		} else {
-			taskPath, err = ScanWatchDir(watchDir)
-		}
-		if err != nil {
-			return err
+		var triggerMsg string
+		if cfg.EffectiveID != "" {
+			if msg, err := ReadTrigger(cfg.EffectiveID); err == nil && msg != "" {
+				triggerMsg = msg
+			}
 		}
 
-		if taskPath == "" {
+		var taskPath string
+		if triggerMsg == "" {
+			if cfg.OnTouch {
+				taskPath, err = touchTrack.scanTouchDir(watchDir)
+			} else {
+				taskPath, err = ScanWatchDir(watchDir)
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		if taskPath == "" && triggerMsg == "" {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
-			pollWait(cfg.Stderr, fmt.Sprintf("Watching %s", watchDir), pollDelay, cfg.Shutdown)
+			pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Watching %s", watchDir), pollDelay, cfg.Shutdown, wakeCh(&cfg))
 			continue
 		}
 
-		filename := filepath.Base(taskPath)
 		taskCfg := cfg
+		var filename string
+		if triggerMsg != "" {
+			filename = "trigger"
+			taskCfg.Content = taskCfg.Content + "\n\n" + FormatTrigger(triggerMsg)
+		} else {
+			filename = filepath.Base(taskPath)
+		}
 		if dash != nil {
 			logFile := dash.logFiles[0]
 			dash.dash.Update(0, WorkerState{
@@ -375,7 +390,11 @@ func RunWatch(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if triggerMsg != "" {
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
+		} else {
+			err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		}
 		if dash != nil {
 			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 		}
@@ -396,7 +415,7 @@ func RunWatch(cfg Config) error {
 			continue
 		}
 
-		// Wait between iterations (skip after last), interruptible by shutdown
+		// Wait between iterations (skip after last), interruptible by shutdown or wake
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
 			d := computeDelay(cfg.Delay, cfg.Fuzz)
 			if d > 0 {
@@ -406,6 +425,8 @@ func RunWatch(cfg Config) error {
 				case <-cfg.Shutdown:
 					writeSummary(cfg, stats)
 					return ErrInterrupted
+				case <-wakeCh(&cfg):
+					fmt.Fprintf(cfg.Stderr, "wake signal received, starting next iteration\n")
 				}
 			}
 		}
@@ -425,6 +446,156 @@ func RunWatch(cfg Config) error {
 	}
 
 	writeSummary(cfg, stats)
+	return nil
+}
+
+// runTriggerTask runs a single iteration triggered by an external message.
+// It mirrors runWatchTask but skips the file-read step since the trigger
+// content is already appended to cfg.Content.
+func runTriggerTask(cfg Config, iteration, maxIter int, state *runTaskState, stats *runStats) error {
+	if cfg.RunID == "" {
+		cfg.RunID = generateRunID()
+	}
+
+	select {
+	case <-cfg.Shutdown:
+		return ErrInterrupted
+	default:
+	}
+
+	formatter := NewLoopFormatter(cfg.Stderr)
+	formatter.IterationHeader(iteration, maxIter, "trigger", cfg.Label)
+
+	onFailure := cfg.OnFailure
+	if onFailure == "" {
+		onFailure = OnFailureStop
+	}
+
+	if cfg.AgentBefore != "" {
+		formatter.PhaseAgentHeader("before")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentBefore)
+		}
+		env := phaseEnv{phase: "before", iteration: iteration, maxIter: maxIter, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentBefore, env, cfg.Stderr); err != nil {
+			if errors.Is(err, ErrInterrupted) {
+				return ErrInterrupted
+			}
+			return fmt.Errorf("agent-before failed (iteration %d): %w", iteration, err)
+		}
+	}
+
+	if cfg.CmdBefore != "" {
+		formatter.CmdHookMarker("cmd-before", cfg.CmdBefore)
+		if err := runHook(cfg.CmdBefore, hookEnv{iteration: iteration, maxIterations: maxIter, runID: cfg.RunID, label: cfg.Label, model: cfg.Model, provider: cfg.Provider}, cfg.Stderr); err != nil {
+			fmt.Fprintf(cfg.Stderr, "cmd-before failed (iteration %d): %v\n", iteration, err)
+			return nil
+		}
+	}
+
+	start := time.Now()
+
+	content := cfg.Content
+	if state.retryCount > 0 && cfg.RetryPrompt != "" {
+		content = cfg.RetryPrompt + "\n\n" + content
+	}
+	prompt := BuildPrompt(content, iteration, maxIter)
+	printVerboseProviderCommand(cfg, prompt)
+	opts := buildRunOptions(cfg, prompt)
+	opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, iteration, maxIter, cfg.Label, cfg.Model, cfg.Provider, "", cfg.WorkerID)...)
+
+	writeIterStartLog(cfg.Log, iterStartLogEntry{
+		RunID:     cfg.RunID,
+		Iteration: iteration,
+		WorkerID:  cfg.WorkerID,
+	})
+
+	result, err := cfg.Runner.Run(opts)
+	if err != nil {
+		return fmt.Errorf("runner error on trigger iteration %d: %w", iteration, err)
+	}
+
+	if result.OverloadExhausted {
+		return fmt.Errorf("agent exhausted overload retries on trigger iteration %d", iteration)
+	}
+
+	if result.ExitCode != 0 {
+		switch onFailure {
+		case OnFailureRetry:
+			maxRetries := cfg.Retries
+			if maxRetries == 0 {
+				maxRetries = 2
+			}
+			if state.retryCount < maxRetries {
+				state.retryCount++
+				return nil
+			}
+			state.retryCount = 0
+		case OnFailureContinue:
+		default:
+			return fmt.Errorf("trigger iteration %d failed (exit code %d)", iteration, result.ExitCode)
+		}
+	} else {
+		state.retryCount = 0
+	}
+
+	stats.iterations++
+	stats.inputTokens += result.InputTokens
+	stats.outputTokens += result.OutputTokens
+	stats.cacheTokens += result.CacheTokens
+	formatter.IterationStatus(time.Since(start), result.InputTokens, result.OutputTokens, result.CacheTokens)
+
+	writeIterationLog(cfg.Log, iterationLogEntry{
+		RunID:        cfg.RunID,
+		Timestamp:    time.Now().UTC(),
+		Iteration:    iteration,
+		WorkerID:     cfg.WorkerID,
+		DurationMs:   time.Since(start).Milliseconds(),
+		InputTokens:  result.InputTokens,
+		OutputTokens: result.OutputTokens,
+		CacheTokens:  result.CacheTokens,
+		ExitCode:     result.ExitCode,
+	})
+
+	if cfg.AgentAfter != "" {
+		formatter.PhaseAgentHeader("after")
+		if cfg.Verbose {
+			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentAfter)
+		}
+		env := phaseEnv{phase: "after", iteration: iteration, maxIter: maxIter, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+		if err := runPhaseAgent(cfg, cfg.AgentAfter, env, cfg.Stderr); err != nil {
+			if errors.Is(err, ErrInterrupted) {
+				return ErrInterrupted
+			}
+			fmt.Fprintf(cfg.Stderr, "agent-after failed (iteration %d): %v\n", iteration, err)
+		}
+	}
+
+	if cfg.CmdAfter != "" {
+		formatter.CmdHookMarker("cmd-after", cfg.CmdAfter)
+		afterEnv := hookEnv{
+			iteration:     iteration,
+			maxIterations: maxIter,
+			exitCode:      result.ExitCode,
+			inputTokens:   result.InputTokens,
+			outputTokens:  result.OutputTokens,
+			runID:         cfg.RunID,
+			label:         cfg.Label,
+			model:         cfg.Model,
+			provider:      cfg.Provider,
+		}
+		if err := runHook(cfg.CmdAfter, afterEnv, cfg.Stderr); err != nil {
+			fmt.Fprintf(cfg.Stderr, "cmd-after failed (iteration %d): %v\n", iteration, err)
+		}
+	}
+
+	if cfg.MaxCost > 0 && stats != nil {
+		cost := estimateCost(stats.inputTokens, stats.outputTokens, stats.model)
+		if cost > cfg.MaxCost {
+			return errCostGuard
+		}
+	}
+
 	return nil
 }
 
@@ -811,26 +982,42 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 		default:
 		}
 
-		var taskPath string
-		var err error
-		if touchTrack != nil {
-			taskPath, err = touchTrack.claimTouchDir(cfg.Watch[0], coord)
-		} else {
-			taskPath, err = coord.claim(cfg.Watch[0])
-		}
-		if err != nil {
-			return err
+		var triggerMsg string
+		if cfg.EffectiveID != "" {
+			if msg, err := ReadTrigger(cfg.EffectiveID); err == nil && msg != "" {
+				triggerMsg = msg
+			}
 		}
 
-		if taskPath == "" {
+		var taskPath string
+		var err error
+		if triggerMsg == "" {
+			if touchTrack != nil {
+				taskPath, err = touchTrack.claimTouchDir(cfg.Watch[0], coord)
+			} else {
+				taskPath, err = coord.claim(cfg.Watch[0])
+			}
+			if err != nil {
+				return err
+			}
+		}
+
+		if taskPath == "" && triggerMsg == "" {
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 			}
-			pollWait(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown)
+			pollWaitWithWake(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown, wakeCh(&cfg))
 			continue
 		}
 
-		filename := filepath.Base(taskPath)
+		var filename string
+		taskCfg := cfg
+		if triggerMsg != "" {
+			filename = "trigger"
+			taskCfg.Content = taskCfg.Content + "\n\n" + FormatTrigger(triggerMsg)
+		} else {
+			filename = filepath.Base(taskPath)
+		}
 		if dash != nil {
 			dash.dash.Update(workerID, WorkerState{
 				Status:    WorkerActive,
@@ -853,9 +1040,15 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		err = runWatchTask(cfg, taskPath, i, max, taskState, &stats)
+		if triggerMsg != "" {
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
+		} else {
+			err = runWatchTask(cfg, taskPath, i, max, taskState, &stats)
+		}
 		if err != nil {
-			coord.release(taskPath)
+			if triggerMsg == "" {
+				coord.release(taskPath)
+			}
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 			}
@@ -874,12 +1067,14 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
 			continue
 		}
-		coord.release(taskPath)
+		if triggerMsg == "" {
+			coord.release(taskPath)
+		}
 		if dash != nil {
 			dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 		}
 
-		// Wait between iterations (skip after last), interruptible by shutdown
+		// Wait between iterations (skip after last), interruptible by shutdown or wake
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
 			d := computeDelay(cfg.Delay, cfg.Fuzz)
 			if d > 0 {
@@ -889,6 +1084,8 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 				case <-cfg.Shutdown:
 					writeSummary(cfg, stats)
 					return ErrInterrupted
+				case <-wakeCh(&cfg):
+					fmt.Fprintf(cfg.Stderr, "wake signal received, starting next iteration\n")
 				}
 			}
 		}
