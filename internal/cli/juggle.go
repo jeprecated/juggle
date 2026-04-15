@@ -439,14 +439,14 @@ var loopCmd = &cobra.Command{
 	Use:   "loop [prompt-content...]",
 	Short: "Run an agent in a loop",
 	Long:  `Run an AI agent in a loop. Runs immediately, keeps running. All positional args are prompt content (strings or @file references).`,
-	Example: `  # Basic: run 3 iterations
-  juggle loop "fix the failing tests" -n 3
+	Example: `  # Run 5 iterations on a task
+  juggle loop "fix tests" -n 5
 
   # With a prompt file and trust mode
   juggle loop @task.md --trust -n 10
 
-  # With delay between iterations
-  juggle loop @task.md -n 5 --delay 2
+  # Long-running maintenance loop with named session
+  juggle loop "maintain code" --delay 2 --id myapp
 
   # Resume from last iteration
   juggle loop @task.md --log run.jsonl --resume`,
