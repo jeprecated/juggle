@@ -64,6 +64,7 @@ type FileConfig struct {
 	SystemPrompt        *string `toml:"system_prompt"`
 	Workers      *int     `toml:"workers"`
 	Every        *string  `toml:"every"`
+	EveryImmediate *bool  `toml:"every_immediate"`
 	WorkDir      *string  `toml:"workdir"`
 	Channels     *string  `toml:"channels"`
 	ExtraArgs    []string `toml:"extra_args"`
@@ -223,6 +224,9 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 				watchFlags.every = d
 			}
 		})
+	}
+	if cfg.EveryImmediate != nil {
+		set("every-immediate", func() { watchFlags.everyImmediate = *cfg.EveryImmediate })
 	}
 	if cfg.WorkDir != nil {
 		set("workdir", func() { flags.workdir = *cfg.WorkDir })

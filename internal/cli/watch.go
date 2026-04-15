@@ -326,6 +326,8 @@ func RunWatch(cfg Config) error {
 		touchTrack = newTouchTracker()
 	}
 
+	everyFirst := !cfg.EveryImmediate
+
 	for i := 1; max == 0 || i <= max; i++ {
 		select {
 		case <-cfg.Shutdown:
@@ -358,7 +360,11 @@ func RunWatch(cfg Config) error {
 
 		if taskPath == "" && triggerMsg == "" {
 			if cfg.Every > 0 {
-				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+				if everyFirst {
+					everyFirst = false
+				} else {
+					pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+				}
 			} else {
 				if dash != nil {
 					dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
@@ -983,6 +989,7 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	everyFirst := !cfg.EveryImmediate
 
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown before starting each iteration
@@ -1017,7 +1024,11 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 
 		if taskPath == "" && triggerMsg == "" {
 			if cfg.Every > 0 {
-				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+				if everyFirst {
+					everyFirst = false
+				} else {
+					pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
+				}
 			} else {
 				if dash != nil {
 					dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
@@ -1182,7 +1193,7 @@ func runTouchWatch(cfg Config) error {
 	}
 
 	lastMod := info.ModTime()
-	var dirty bool
+	dirty := cfg.Every > 0 && cfg.EveryImmediate
 
 	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 

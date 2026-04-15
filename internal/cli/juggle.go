@@ -123,6 +123,7 @@ type Config struct {
 	Dashboard         bool                    // Show TUI dashboard for watch workers (auto-enabled for glob watch)
 	OnTouch           bool                    // Re-process files on mtime change (touch) in addition to new files
 	Every             time.Duration           // Run on a fixed interval even without a watch file
+	EveryImmediate    bool                    // Run immediately on first iteration with --every
 	WorkerID          int                     // Worker identifier for log entries (0 = main/no worker, -1 = omit)
 	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
 	ID                string                  // User-given session name (--id flag)
@@ -249,11 +250,12 @@ var flags struct {
 
 // watchFlags holds flags specific to the watch subcommand.
 var watchFlags struct {
-	dirs      []string
-	workers   int
-	dashboard bool
-	onTouch   bool
-	every     time.Duration
+	dirs           []string
+	workers        int
+	dashboard      bool
+	onTouch        bool
+	every          time.Duration
+	everyImmediate bool
 }
 
 func init() {
@@ -333,7 +335,8 @@ func init() {
 	wf.BoolVar(&watchFlags.dashboard, "dashboard", false, "show TUI dashboard for watch workers (default on for glob watch)")
 	wf.BoolVar(&watchFlags.onTouch, "on-touch", false, "trigger on file touch (mtime change) in addition to new files; allows watching a single file as a trigger")
 	wf.DurationVar(&watchFlags.every, "every", 0, "run on a fixed interval (e.g. 30s, 5m) even without a watch file")
-	for _, name := range []string{"dir", "workers", "dashboard", "on-touch", "every"} {
+	wf.BoolVar(&watchFlags.everyImmediate, "every-immediate", false, "with --every, run immediately on startup instead of waiting the first interval")
+	for _, name := range []string{"dir", "workers", "dashboard", "on-touch", "every", "every-immediate"} {
 		setFlagGroup(wf, name, "Watch Mode")
 	}
 
@@ -765,6 +768,7 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		Dashboard:         watchFlags.dashboard,
 		OnTouch:           watchFlags.onTouch,
 		Every:             watchFlags.every,
+		EveryImmediate:    watchFlags.everyImmediate,
 		Iterations:        flags.iterations,
 		Model:             flags.model,
 		Provider:          flags.provider,

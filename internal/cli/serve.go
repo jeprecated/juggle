@@ -247,6 +247,7 @@ func runServeCmd(cmd *cobra.Command, args []string) error {
 		WorkDir:           flags.workdir,
 		Dashboard:         watchFlags.dashboard,
 		Every:             watchFlags.every,
+		EveryImmediate:    watchFlags.everyImmediate,
 		Runner:            &agent.ProviderRunner{Provider: p},
 		ID:                flags.id,
 	}
