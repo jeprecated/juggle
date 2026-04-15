@@ -60,7 +60,6 @@ func retryBackoffFor(attempt int, overrides []time.Duration) time.Duration {
 // errCostGuard is returned by runWatchTask when --max-cost threshold is exceeded.
 var errCostGuard = errors.New("cost guard triggered")
 
-
 // errFileGone is returned by runWatchTask when the task file no longer exists (agent completed it).
 var errFileGone = errors.New("task file completed")
 
@@ -467,17 +466,14 @@ var queueCmd = &cobra.Command{
 	Example: `  # Watch a directory for task files
   juggle queue @rules.md --watch ./tasks/
 
-  # Multiple watch directories
-  juggle queue @rules.md --watch ./tasks/ --watch ./more/
+  # Run on a fixed interval, starting immediately
+  juggle queue "check health" --every 30s --now
 
-  # Run on a fixed interval
-  juggle queue "check for issues" --every 5m
-
-  # HTTP trigger: POST body becomes the trigger message
+  # HTTP trigger endpoint with named session
   juggle queue @rules.md --serve :8080 --id myapp
 
-  # Combine triggers: watch + interval + immediate first run
-  juggle queue @rules.md --watch ./tasks/ --every 30m --now
+  # Combine triggers: watch + interval + named session
+  juggle queue @rules.md --watch ./tasks/ --every 5m --id myapp
 
   # Parallel workers with dashboard
   juggle queue @rules.md --watch ./tasks/ --workers 4 --dashboard`,
@@ -530,7 +526,12 @@ Use "juggle queue" to wait for triggers (watch, interval, HTTP).`,
 
   # Run on a fixed interval
   juggle queue "check for issues" --every 5m`,
-	Args: cobra.NoArgs,
+	Args: func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("unknown arguments %v\n\nDid you mean:\n  juggle loop %s\n  juggle queue %s --watch ./tasks/", args, args[0], args[0])
+		}
+		return nil
+	},
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return cmd.Help()
 	},
@@ -779,13 +780,6 @@ func runLoopCmd(cmd *cobra.Command, args []string) error {
 func runQueueCmd(cmd *cobra.Command, args []string) error {
 	normalArgs, passthroughArgs := splitPassthroughArgs(args, cmd.Flags().ArgsLenAtDash())
 
-	if len(queueFlags.watch) == 0 && queueFlags.every == 0 && flags.id == "" && queueFlags.serve == "" {
-		return fmt.Errorf("queue requires at least one trigger: --watch, --every, --serve, or --id")
-	}
-	if queueFlags.serve != "" && flags.id == "" {
-		return fmt.Errorf("--serve requires --id")
-	}
-
 	fileCfg, _, cfgErr := LoadConfig(flags.noConfig, ".", os.Stderr)
 	if cfgErr != nil {
 		return cfgErr
@@ -795,6 +789,13 @@ func runQueueCmd(cmd *cobra.Command, args []string) error {
 			flags.verbose = *fileCfg.Verbose
 		}
 		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr, "queue")
+	}
+
+	if len(queueFlags.watch) == 0 && queueFlags.every == 0 && flags.id == "" && queueFlags.serve == "" {
+		return fmt.Errorf("queue requires at least one trigger: --watch, --every, --serve, or --id")
+	}
+	if queueFlags.serve != "" && flags.id == "" {
+		return fmt.Errorf("--serve requires --id")
 	}
 
 	resolved, err := ResolveArgs(normalArgs)
@@ -1297,15 +1298,15 @@ func RunLoop(cfg Config) error {
 		start := time.Now()
 
 		content := cfg.Content
-			if retryCount > 0 && cfg.RetryPrompt != "" {
-				content = cfg.RetryPrompt + "\n\n" + content
-			}
-			if trigMsg, trigErr := readTriggerFromSession(&cfg); trigErr != nil {
-				fmt.Fprintf(cfg.Stderr, "warning: reading trigger: %v\n", trigErr)
-			} else if trigMsg != "" {
-				content = content + "\n\n" + FormatTrigger(trigMsg)
-			}
-			prompt := BuildPrompt(content, i, max)
+		if retryCount > 0 && cfg.RetryPrompt != "" {
+			content = cfg.RetryPrompt + "\n\n" + content
+		}
+		if trigMsg, trigErr := readTriggerFromSession(&cfg); trigErr != nil {
+			fmt.Fprintf(cfg.Stderr, "warning: reading trigger: %v\n", trigErr)
+		} else if trigMsg != "" {
+			content = content + "\n\n" + FormatTrigger(trigMsg)
+		}
+		prompt := BuildPrompt(content, i, max)
 		printVerboseProviderCommand(cfg, prompt)
 		opts := buildRunOptions(cfg, prompt)
 		opts.Env = append(opts.Env, buildJuggleEnv(cfg.RunID, i, max, cfg.Label, cfg.Model, cfg.Provider, "", -1)...)

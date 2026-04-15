@@ -175,6 +175,10 @@ func TestBareJuggleWithArgsErrors(t *testing.T) {
 	if err == nil {
 		t.Error("bare juggle with args should error")
 	}
+	msg := err.Error()
+	if !strings.Contains(msg, "juggle loop") || !strings.Contains(msg, "juggle queue") {
+		t.Errorf("error should suggest loop/queue, got: %s", msg)
+	}
 }
 
 func TestLoopCmdExtraShorthand(t *testing.T) {

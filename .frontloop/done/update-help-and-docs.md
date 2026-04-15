@@ -43,3 +43,17 @@ Final polish task. Depends on tasks 1000-1600 being completed.
 - Queue command definition — help text
 - `README.md` — if it exists
 - `docs/` — any files referencing old commands
+
+## Completion Summary
+
+- Updated rootCmd Long description to explain loop vs queue modes
+- Updated queue command examples to show each trigger independently and combined
+- Updated rootCmd Args to give helpful error suggesting loop/queue when bare args passed
+- Updated --now, --serve, --id flag descriptions to match acceptance criteria
+- Removed all references to old `juggle watch` and `juggle serve` commands from help text
+- Fixed loopCmd example: `--delay 2m` → `--delay 2` (flag is int minutes, not duration)
+- Updated queueCmd examples to match AC: each trigger shown independently then combined
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified)

@@ -47,3 +47,16 @@ Final cleanup task. Depends on all previous tasks (1000-1500) being completed.
 - `internal/cli/powershell_test.go`
 - `internal/cli/complete_test.go`
 - Any integration test files
+
+## Completion Summary
+
+- All test files were updated during tasks 1000-1500 as part of the source refactoring
+- Verified: no test references `runWatchSubcmd()`, `runServeCmd()`, or `every_immediate`
+- Verified: `nushell_test.go` defensively asserts old subcommands are absent
+- Verified: queue tests do not use `-n`/`--iterations`
+- `go test ./...` — all tests pass
+- `go build` — builds cleanly
+
+### Files Changed
+
+- No additional changes needed — tests were already updated by prior tasks

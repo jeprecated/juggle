@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfig_NoFile(t *testing.T) {
@@ -353,5 +354,39 @@ func TestApplyFileConfig_WatchSetsFlags(t *testing.T) {
 	}
 	if queueFlags.watch[0] != "./tasks1" || queueFlags.watch[1] != "./tasks2" {
 		t.Errorf("unexpected watch flags: %v", queueFlags.watch)
+	}
+}
+
+func TestApplyFileConfig_QueueEveryAndServe(t *testing.T) {
+	origEvery := queueFlags.every
+	origServe := queueFlags.serve
+	origNow := queueFlags.now
+	t.Cleanup(func() {
+		queueFlags.every = origEvery
+		queueFlags.serve = origServe
+		queueFlags.now = origNow
+	})
+
+	queueFlags.every = 0
+	queueFlags.serve = ""
+	queueFlags.now = false
+
+	every := "5m"
+	serve := ":8080"
+	now := true
+	cfg := &FileConfig{Every: &every, Serve: &serve, Now: &now}
+
+	changed := func(string) bool { return false }
+	var stderr bytes.Buffer
+	ApplyFileConfig(cfg, changed, false, &stderr, "queue")
+
+	if queueFlags.every != 5*time.Minute {
+		t.Errorf("every: expected 5m, got %v", queueFlags.every)
+	}
+	if queueFlags.serve != ":8080" {
+		t.Errorf("serve: expected :8080, got %s", queueFlags.serve)
+	}
+	if !queueFlags.now {
+		t.Error("now: expected true")
 	}
 }

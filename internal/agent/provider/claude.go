@@ -262,11 +262,9 @@ func (c *ClaudeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		streamOutput(stderr, &outputBuf, os.Stderr)
 	}()
 
-	// Wait for command to complete
+	wg.Wait()
 	err = cmd.Wait()
 	close(cmdDone)
-	// Wait for output streaming to finish before reading buffer
-	wg.Wait()
 	result.Output = outputBuf.String()
 
 	// Populate stream-JSON metrics

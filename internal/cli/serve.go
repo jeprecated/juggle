@@ -25,7 +25,8 @@ func newServeHandler(effectiveID string) http.Handler {
 			http.Error(w, "POST only", http.StatusBadRequest)
 			return
 		}
-		body, _ := io.ReadAll(r.Body)
+		defer r.Body.Close()
+		body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 		if len(body) == 0 {
 			http.Error(w, "empty body", http.StatusBadRequest)
 			return

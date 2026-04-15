@@ -201,9 +201,9 @@ func (c *CopilotProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		streamOutput(stderr, &outputBuf, os.Stderr)
 	}()
 
+	wg.Wait()
 	err = cmd.Wait()
 	close(cmdDone)
-	wg.Wait()
 	result.Output = outputBuf.String()
 
 	if err != nil {

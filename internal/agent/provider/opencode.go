@@ -202,10 +202,9 @@ func (o *OpenCodeProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		streamOutput(stderr, &outputBuf, os.Stderr)
 	}()
 
-	// Wait for command to complete
+	wg.Wait()
 	err = cmd.Wait()
 	close(cmdDone)
-	wg.Wait()
 	result.Output = outputBuf.String()
 
 	if err != nil {

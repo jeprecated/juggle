@@ -230,8 +230,8 @@ Juggle exposes loop state to every spawned agent process. Prompts, skills, and M
 | `JUGGLE_MODEL` | Model name passed to the agent |
 | `JUGGLE_PROVIDER` | Provider name (`claude`, `opencode`, ...) |
 | `JUGGLE_LABEL` | Run label if `--label` was set (omitted otherwise) |
-| `JUGGLE_TASK_FILE` | *(watch mode)* Absolute path to the current task file |
-| `JUGGLE_WORKER_ID` | *(glob watch)* 0-indexed worker number |
+| `JUGGLE_TASK_FILE` | *(queue --watch)* Absolute path to the current task file |
+| `JUGGLE_WORKER_ID` | *(queue --watch)* 0-indexed worker number |
 
 ## Prerequisites
 
