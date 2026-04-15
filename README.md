@@ -26,53 +26,53 @@ Juggle exists to solve all of this in one tool -- strong enough to trust with yo
 
 ```bash
 # Run 3 iterations on a task
-juggle "fix the failing tests" -n 3
+juggle loop "fix the failing tests" -n 3
 ```
 
 ```bash
 # Leave it running overnight -- find and fix issues autonomously
-juggle "Find one issue to fix or improvement to make. Check git log to avoid repeating past work." -n 20 --max-cost 10
+juggle loop "Find one issue to fix or improvement to make. Check git log to avoid repeating past work." -n 20 --max-cost 10
 ```
 
 ```bash
 # Work through a todo list while you sleep
-juggle "Read TODO.md and implement the next unchecked item. Mark it done when complete." -n 0 --max-cost 20
+juggle loop "Read TODO.md and implement the next unchecked item. Mark it done when complete." -n 0 --max-cost 20
 ```
 
 ```bash
 # @file reads a file's contents into the prompt
-juggle @task.md -n 5
+juggle loop @task.md -n 5
 ```
 
 ```bash
 # Mix and match -- all positional args join into one prompt
-juggle @tdd @fix "the login form rejects valid emails" -n 5
+juggle loop @tdd @fix "the login form rejects valid emails" -n 5
 ```
 
 ```bash
 # Point JUGGLE_PROMPTS at a library of reusable prompts
 export JUGGLE_PROMPTS=~/prompts
-juggle @tdd @fix "broken email validation" -n 5
+juggle loop @tdd @fix "broken email validation" -n 5
 ```
 
 [prompt-lego](https://github.com/ohare93/prompt-lego) is a starter kit of reusable prompt files that work out of the box.
 
 ```bash
 # Add a test gate -- stop when tests pass
-juggle @tdd @fix "broken email validation" --cmd-after "make test" --stop-when "make test" -n 10
+juggle loop @tdd @fix "broken email validation" --cmd-after "make test" --stop-when "make test" -n 10
 ```
 
 ```bash
 # Run a code review agent after each iteration
-juggle @fix "broken email validation" --agent-after @code-review -n 5
+juggle loop @fix "broken email validation" --agent-after @code-review -n 5
 ```
 
 ```bash
 # Watch a directory -- agents pick up tasks as they appear
-juggle --watch tasks/ready/ @tdd -n 0
+juggle queue @tdd --watch tasks/ready/
 ```
 
-`--watch` runs a fresh agent session for each file in a directory, and waits for new files to appear. That pairs naturally with a task queue like [frontloop](https://github.com/ohare93/frontloop), which stores tasks as markdown files in `.frontloop/ready/` -- you plan tasks while a background juggle loop works through them. But juggle doesn't care where tasks come from -- a directory of markdown files, a script that dumps issues, or anything else that puts files in a folder.
+`juggle queue --watch` runs a fresh agent session for each file in a directory, and waits for new files to appear. That pairs naturally with a task queue like [frontloop](https://github.com/ohare93/frontloop), which stores tasks as markdown files in `.frontloop/ready/` -- you plan tasks while a background juggle loop works through them. But juggle doesn't care where tasks come from -- a directory of markdown files, a script that dumps issues, or anything else that puts files in a folder.
 
 All positional args are prompt content -- strings and `@file` references join into the final prompt. Point `JUGGLE_PROMPTS` at a directory of reusable prompts and compose them like lego pieces.
 

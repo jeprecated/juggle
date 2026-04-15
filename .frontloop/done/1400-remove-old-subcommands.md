@@ -45,3 +45,32 @@ Depends on tasks 1000, 1100, 1200, and 1300 being completed first.
 - `internal/cli/nushell_test.go` — update completion tests
 - `internal/cli/config.go` — remove `watchFlags` references if not already done
 - `internal/cli/config_test.go` — update config tests
+
+## Completion Summary
+
+- Removed `watchCmd`, `serveCmd` cobra commands and their registrations
+- Removed `watchFlags` struct (replaced by `queueFlags`), `serveSpecificFlags` struct
+- Removed `runWatchSubcmd()` and `runServeCmd()` handlers
+- Removed `detectShellGlobExpansion()` (dead code after queue uses --watch flag)
+- Kept `RunWatch()`, `RunServe()`, `parseServeAddr()`, `newServeHandler()` as queue delegates to them
+- Renamed `EveryImmediate` to `Now` in Config struct
+- Updated all tests: watch/serve references → queue equivalents
+- Added `queue_test.go` with comprehensive queue subcommand tests
+- Updated help, completion, and config tests
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified) — removed watch/serve commands, added queue command
+- `internal/cli/serve.go` (modified) — removed serveCmd, kept helper functions
+- `internal/cli/watch.go` (modified) — EveryImmediate → Now
+- `internal/cli/watch_glob.go` (modified) — removed detectShellGlobExpansion
+- `internal/cli/config.go` (modified) — updated flag references
+- `internal/cli/help.go` (modified) — added Queue Mode group
+- `internal/cli/juggle_test.go` (modified) — updated for loop/queue
+- `internal/cli/serve_test.go` (modified) — updated for queue
+- `internal/cli/help_test.go` (modified) — updated for queue
+- `internal/cli/nushell_test.go` (modified) — updated completions
+- `internal/cli/config_test.go` (modified) — updated flag references
+- `internal/cli/loop_test.go` (modified) — added bare juggle tests
+- `internal/cli/watch_glob_test.go` (modified) — removed glob detection tests
+- `internal/cli/queue_test.go` (new) — queue subcommand tests
