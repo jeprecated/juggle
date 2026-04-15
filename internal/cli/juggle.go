@@ -301,7 +301,7 @@ func init() {
 	pf.StringVar(&flags.channels, "channels", "", "development channels for agent (e.g. server:claude-peers)")
 	pf.StringArrayVarP(&flags.extraArgs, "extra", "X", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
-	pf.StringVar(&flags.id, "id", "", "session identifier for juggle trigger targeting")
+	pf.StringVar(&flags.id, "id", "", "named session for juggle trigger")
 	pf.BoolVar(&flags.noLog, "no-log", false, "disable automatic session logging")
 
 	// Loop-only flags: local to rootCmd (not inherited by queue).
@@ -359,10 +359,10 @@ func init() {
 	qf.StringArrayVar(&queueFlags.watch, "watch", nil, "watch directory or glob pattern for task files (repeatable)")
 	qf.BoolVar(&queueFlags.onTouch, "on-touch", false, "trigger on file touch (mtime change) in addition to new files")
 	qf.DurationVar(&queueFlags.every, "every", 0, "run on a fixed interval (e.g. 30s, 5m)")
-	qf.BoolVar(&queueFlags.now, "now", false, "run immediately on first iteration, then wait for triggers")
+	qf.BoolVar(&queueFlags.now, "now", false, "run immediately, then wait for triggers")
 	qf.IntVar(&queueFlags.workers, "workers", 1, "number of concurrent watch workers")
 	qf.BoolVar(&queueFlags.dashboard, "dashboard", false, "show TUI dashboard for watch workers")
-	qf.StringVar(&queueFlags.serve, "serve", "", "start HTTP server as trigger source (e.g. :8080, 0.0.0.0:8080)")
+	qf.StringVar(&queueFlags.serve, "serve", "", "HTTP endpoint as trigger (requires --id; e.g. :8080)")
 	for _, name := range []string{"watch", "on-touch", "every", "now", "workers", "dashboard", "serve"} {
 		setFlagGroup(qf, name, "Queue Mode")
 	}
@@ -375,7 +375,7 @@ func init() {
 // on the command's local flag set, binding to the global flags struct.
 func registerSharedFlags(cmd *cobra.Command) {
 	f := cmd.Flags()
-	f.StringVar(&flags.id, "id", "", "session identifier for juggle trigger targeting")
+	f.StringVar(&flags.id, "id", "", "named session for juggle trigger")
 	f.StringVar(&flags.model, "model", "sonnet", "model name")
 	f.StringVar(&flags.provider, "provider", "claude", "provider name")
 	f.BoolVar(&flags.trust, "trust", false, "bypass permission checks")

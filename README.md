@@ -82,7 +82,7 @@ Set `JUGGLE_PROMPTS` to a directory of reusable prompt files. Reference any file
 
 ```bash
 export JUGGLE_PROMPTS=~/prompts
-juggle @tdd @fix "broken email validation" -n 5
+juggle loop @tdd @fix "broken email validation" -n 5
 ```
 
 **Resolution order** for a bare `@name` (no `/`):
@@ -149,7 +149,7 @@ go install github.com/ohare93/juggle/cmd/juggle@latest
 ## Features
 
 - **Loop control** -- iterations, delay with jitter, per-iteration timeout, resume after crash
-- **Watch mode** -- process task files from a directory or glob pattern, with parallel workers (`juggle --watch tasks/ready/ @worker-rules.md`)
+- **Queue mode** -- wait for triggers: watch directories, fixed intervals, or HTTP endpoints (`juggle queue @worker-rules.md --watch tasks/ready/`)
 - **Lifecycle hooks** -- run shell commands before/after each iteration, stop on a condition
 - **Phase agents** -- run separate agent sessions before/after the main loop or each iteration
 - **Pipeline** -- define ordered `agent` and `cmd` nodes with events, dependencies, conditions, and failure policies (`juggle pipeline --file pipeline.toml`)
@@ -187,10 +187,10 @@ Pass provider-native flags directly to the agent CLI with `-X` (repeatable) or `
 
 ```bash
 # -X appends one arg at a time
-juggle -X "--json" "summarise this repo" --provider codex
+juggle loop -X "--json" "summarise this repo" --provider codex
 
 # -- passes everything after it verbatim
-juggle "fix tests" -- --max-turns 50 --allowedTools Bash,Read
+juggle loop "fix tests" -- --max-turns 50 --allowedTools Bash,Read
 ```
 
 Both forms are equivalent. `-X` is useful in config files and scripts where `--` can be awkward.
@@ -199,23 +199,23 @@ Both forms are equivalent. `-X` is useful in config files and scripts where `--`
 
 ```bash
 # Override the model
-juggle --provider codex -X "-c" -X 'model="o3"' "refactor auth"
+juggle loop --provider codex -X "-c" -X 'model="o3"' "refactor auth"
 
 # Get structured JSON output
-juggle --provider codex -X "--json" -X "-o" -X "result.txt" "extract API endpoints"
+juggle loop --provider codex -X "--json" -X "-o" -X "result.txt" "extract API endpoints"
 
 # Set sandbox policy
-juggle --provider codex "fix tests" -- -c 'sandbox_permissions=["disk-full-read-access"]'
+juggle loop --provider codex "fix tests" -- -c 'sandbox_permissions=["disk-full-read-access"]'
 ```
 
 **Claude examples:**
 
 ```bash
 # Limit tools and turns via passthrough (equivalent to juggle's --allowed-tools and --max-turns)
-juggle "fix tests" -- --allowedTools Bash,Read --max-turns 50
+juggle loop "fix tests" -- --allowedTools Bash,Read --max-turns 50
 
 # Pass a custom MCP config
-juggle -X "--mcp-config" -X "./mcp.json" "check the database"
+juggle loop -X "--mcp-config" -X "./mcp.json" "check the database"
 ```
 
 ## Environment variables
