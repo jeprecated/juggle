@@ -299,8 +299,7 @@ func init() {
 	pf.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
 	pf.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
 	pf.StringVar(&flags.channels, "channels", "", "development channels for agent (e.g. server:claude-peers)")
-	pf.StringArrayVar(&flags.extraArgs, "extra", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
-	pf.Lookup("extra").Shorthand = "X"
+	pf.StringArrayVarP(&flags.extraArgs, "extra", "X", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 	pf.StringVar(&flags.id, "id", "", "session identifier for juggle trigger targeting")
 	pf.BoolVar(&flags.noLog, "no-log", false, "disable automatic session logging")
@@ -344,6 +343,109 @@ func init() {
 	watchCmd.SetHelpFunc(groupedHelp)
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.AddCommand(watchCmd)
+
+	// Loop subcommand flags
+	registerSharedFlags(loopCmd)
+	lf := loopCmd.Flags()
+	lf.IntVarP(&flags.iterations, "iterations", "n", 0, "max iterations (0 = unlimited)")
+	lf.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
+	lf.IntVar(&flags.fuzz, "fuzz", 0, "+/- random variance in minutes")
+	lf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
+	lf.BoolVar(&flags.continueSession, "continue", false, "pass --continue to the provider on the first iteration (resumes last session)")
+	_ = lf.MarkHidden("fuzz")
+	for _, name := range []string{"delay", "iterations", "resume", "continue"} {
+		setFlagGroup(lf, name, "Loop Control")
+	}
+	rootCmd.AddCommand(loopCmd)
+}
+
+// registerSharedFlags registers all flags shared between loop and queue subcommands.
+// It registers --id plus all agent configuration, lifecycle hook, and output flags
+// on the command's local flag set, binding to the global flags struct.
+func registerSharedFlags(cmd *cobra.Command) {
+	f := cmd.Flags()
+	f.StringVar(&flags.id, "id", "", "session identifier for juggle trigger targeting")
+	f.StringVar(&flags.model, "model", "sonnet", "model name")
+	f.StringVar(&flags.provider, "provider", "claude", "provider name")
+	f.BoolVar(&flags.trust, "trust", false, "bypass permission checks")
+	f.BoolVar(&flags.plan, "plan", false, "read-only plan mode (shortcut for --permission-mode plan)")
+	f.BoolVar(&flags.interactive, "interactive", false, "interactive TUI mode")
+	f.DurationVar(&flags.timeout, "timeout", 0, "per-iteration timeout")
+	f.DurationVar(&flags.maxWait, "max-wait", 0, "max rate limit wait")
+	f.BoolVar(&flags.dryRun, "dry-run", false, "show prompt, don't run")
+	f.BoolVar(&flags.showThinking, "show-thinking", false, "show thinking blocks")
+	f.BoolVarP(&flags.verbose, "verbose", "v", false, "show tool inputs in output")
+	f.IntVar(&flags.maxFailures, "max-failures", 3, "stop after N consecutive non-zero exits (0 = disabled)")
+	f.StringVar(&flags.cmdBefore, "cmd-before", "", "shell command to run before each iteration")
+	f.StringVar(&flags.cmdAfter, "cmd-after", "", "shell command to run after each iteration")
+	f.StringVar(&flags.stopWhen, "stop-when", "", "shell command; exit 0 stops the loop gracefully")
+	f.StringSliceVar(&flags.agentPre, "agent-pre", nil, "agent session prompt(s) to run once before the loop (comma-separated)")
+	f.StringSliceVar(&flags.agentBefore, "agent-before", nil, "agent session prompt(s) to run before each iteration (comma-separated)")
+	f.StringSliceVar(&flags.agentAfter, "agent-after", nil, "agent session prompt(s) to run after each iteration (comma-separated)")
+	f.StringSliceVar(&flags.agentPost, "agent-post", nil, "agent session prompt(s) to run once after the loop (comma-separated)")
+	f.StringArrayVar(&flags.hooks, "hook", nil, "agent-internal hook: EVENT:CMD (repeatable; @file resolves via JUGGLE_PROMPTS)")
+	f.StringVar(&flags.hooksFile, "hooks-file", "", "path to Claude Code hooks settings JSON file")
+	f.StringVar(&flags.log, "log", "", "append one JSON line per iteration to this file (JSONL); summary appended on completion")
+	f.Float64Var(&flags.maxCost, "max-cost", 0, "stop loop when cumulative cost estimate exceeds this amount in USD (0 = disabled)")
+	f.StringVar(&flags.label, "label", "", "optional label for the run (exposed as JUGGLE_LABEL)")
+	f.StringSliceVar(&flags.allowedTools, "allowed-tools", nil, "restrict agent to these tools only (comma-separated; mutually exclusive with --disallowed-tools)")
+	f.StringSliceVar(&flags.disallowedTools, "disallowed-tools", nil, "block specific tools (comma-separated; mutually exclusive with --allowed-tools)")
+	f.IntVar(&flags.maxTurns, "max-turns", 0, "cap tool-use turns per iteration (0 = provider default)")
+	f.StringVar(&flags.mcpConfig, "mcp-config", "", "path to MCP server config file")
+	f.StringVar(&flags.onFailure, "on-failure", "stop", "behavior on non-zero exit: stop, continue, or retry")
+	f.IntVar(&flags.retries, "retries", 2, "max retries per iteration for --on-failure retry")
+	f.StringVar(&flags.agentCmd, "agent-cmd", "", "command template for custom provider (e.g. \"my-agent --prompt {prompt}\"); sets --provider custom automatically")
+	f.StringVar(&flags.command, "command", "", "override the provider command (runs through $SHELL, so aliases and functions work)")
+	f.StringVar(&flags.systemPrompt, "system-prompt", "", "replace the agent's default system prompt (@file resolves via JUGGLE_PROMPTS)")
+	f.StringVar(&flags.retryPrompt, "retry-prompt", "", "extra prompt injected on retry attempts (@file resolves via JUGGLE_PROMPTS)")
+	f.StringVar(&flags.workdir, "workdir", "", "working directory for agent execution (default: juggle's cwd)")
+	f.StringVar(&flags.channels, "channels", "", "development channels for agent (e.g. server:claude-peers)")
+	f.StringArrayVarP(&flags.extraArgs, "extra", "X", nil, "extra arg appended to agent CLI (repeatable, shorthand: -X)")
+	f.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
+	f.BoolVar(&flags.noLog, "no-log", false, "disable automatic session logging")
+
+	_ = f.MarkHidden("interactive")
+	_ = f.MarkHidden("show-thinking")
+	_ = f.MarkHidden("provider")
+
+	for _, name := range []string{"timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt"} {
+		setFlagGroup(f, name, "Loop Control")
+	}
+	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
+		setFlagGroup(f, name, "Agent Configuration")
+	}
+	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
+		setFlagGroup(f, name, "Lifecycle Hooks")
+	}
+	for _, name := range []string{"dry-run", "verbose", "log", "no-log", "label", "id"} {
+		setFlagGroup(f, name, "Output")
+	}
+
+	cmd.SetHelpFunc(groupedHelp)
+}
+
+var loopCmd = &cobra.Command{
+	Use:   "loop [prompt-content...]",
+	Short: "Run an agent in a loop",
+	Long:  `Run an AI agent in a loop. Runs immediately, keeps running. All positional args are prompt content (strings or @file references).`,
+	Example: `  # Basic: run 3 iterations
+  juggle loop "fix the failing tests" -n 3
+
+  # With a prompt file and trust mode
+  juggle loop @task.md --trust -n 10
+
+  # With delay between iterations
+  juggle loop @task.md -n 5 --delay 2
+
+  # Resume from last iteration
+  juggle loop @task.md --log run.jsonl --resume`,
+	Args:              cobra.ArbitraryArgs,
+	ValidArgsFunction: completeArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runLoopCmd(cmd, args)
+	},
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 var completionCmd = &cobra.Command{
@@ -666,6 +768,10 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 
 	return Run(cfg)
+}
+
+func runLoopCmd(cmd *cobra.Command, args []string) error {
+	return run(cmd, args)
 }
 
 // runWatchSubcmd is the cobra RunE handler for the watch subcommand.
