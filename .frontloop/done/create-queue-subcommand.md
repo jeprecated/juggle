@@ -57,3 +57,23 @@ When multiple triggers fire concurrently, first-come-first-served: whatever trig
 - `internal/cli/juggle.go` — add `queueCmd`, `queueFlags`, `runQueueCmd`
 - `internal/cli/watch.go` — rename `EveryImmediate` → `Now` in all loop variants (serial, worker, touch)
 - `internal/cli/config.go` — rename `EveryImmediate` → `Now` in `FileConfig` and `ApplyFileConfig`
+
+## Completion Summary
+
+- `queueCmd` cobra command defined with `Use: "queue [prompt-content...]"` and examples
+- `queueFlags` struct holds queue-specific flags: watch, onTouch, every, now, workers, dashboard
+- Queue flags registered in init() with "Queue Mode" help group
+- Shared flags registered via `registerSharedFlags(queueCmd)` from task 1000
+- Queue does NOT have --delay, --iterations, --resume, --continue
+- Validation: returns error if no trigger flag (--watch, --every, or --id) is provided
+- `runQueueCmd()` builds Config from queue flags and delegates to Run()
+- `EveryImmediate` renamed to `Now` throughout: Config struct, watch.go, config.go
+- Old `watchCmd` still works during transition
+- Comprehensive tests in `queue_test.go` covering flags, exclusions, help groups, trigger validation
+
+### Files Changed
+
+- `internal/cli/juggle.go` (modified) — added queueCmd, queueFlags, runQueueCmd; renamed EveryImmediate to Now in Config
+- `internal/cli/watch.go` (modified) — renamed EveryImmediate to Now
+- `internal/cli/config.go` (modified) — renamed EveryImmediate to Now in FileConfig and ApplyFileConfig
+- `internal/cli/queue_test.go` (new) — tests for queue subcommand

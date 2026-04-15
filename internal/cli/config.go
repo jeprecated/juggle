@@ -64,8 +64,11 @@ type FileConfig struct {
 	SystemPrompt        *string `toml:"system_prompt"`
 	Workers      *int     `toml:"workers"`
 	Every        *string  `toml:"every"`
-	EveryImmediate *bool  `toml:"every_immediate"`
-	WorkDir      *string  `toml:"workdir"`
+	Now            *bool    `toml:"now"`
+	Serve          *string  `toml:"serve"`
+	OnTouch        *bool    `toml:"on_touch"`
+	Dashboard      *bool    `toml:"dashboard"`
+	WorkDir        *string  `toml:"workdir"`
 	Channels     *string  `toml:"channels"`
 	ExtraArgs    []string `toml:"extra_args"`
 	NoLog        *bool    `toml:"no_log"`
@@ -117,11 +120,18 @@ func parseConfigFile(path string) (*FileConfig, error) {
 
 // ApplyFileConfig applies non-nil config values to the package-level flags struct,
 // but only for flags not explicitly set on the CLI (changed returns false for those).
+// The mode parameter ("loop" or "queue") controls which keys are applied:
+// loop-only keys (iterations, delay) are skipped when mode is "queue", and
+// queue-only keys (watch, every, now, serve, on-touch, dashboard, workers) are
+// skipped when mode is "loop". Shared keys apply to both modes.
 // When verbose=true, prints which values were applied from config to stderr.
-func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, stderr io.Writer) {
+func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, stderr io.Writer, mode string) {
 	if cfg == nil {
 		return
 	}
+
+	isLoop := mode == "loop"
+	isQueue := mode == "queue"
 
 	var applied []string
 
@@ -134,23 +144,55 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 		}
 	}
 
-	if cfg.Watch != nil {
-		set("watch", func() { watchFlags.dirs = []string(*cfg.Watch) })
+	// Queue-only keys
+	if isQueue {
+		if cfg.Watch != nil {
+			set("watch", func() { queueFlags.watch = []string(*cfg.Watch) })
+		}
+		if cfg.Workers != nil {
+			set("workers", func() { queueFlags.workers = *cfg.Workers })
+		}
+		if cfg.Every != nil {
+			set("every", func() {
+				d, err := time.ParseDuration(*cfg.Every)
+				if err == nil {
+					queueFlags.every = d
+				}
+			})
+		}
+		if cfg.Now != nil {
+			set("now", func() { queueFlags.now = *cfg.Now })
+		}
+		if cfg.Serve != nil {
+			set("serve", func() { queueFlags.serve = *cfg.Serve })
+		}
+		if cfg.OnTouch != nil {
+			set("on-touch", func() { queueFlags.onTouch = *cfg.OnTouch })
+		}
+		if cfg.Dashboard != nil {
+			set("dashboard", func() { queueFlags.dashboard = *cfg.Dashboard })
+		}
 	}
-	if cfg.Iterations != nil {
-		set("iterations", func() { flags.iterations = *cfg.Iterations })
+
+	// Loop-only keys
+	if isLoop {
+		if cfg.Iterations != nil {
+			set("iterations", func() { flags.iterations = *cfg.Iterations })
+		}
+		if cfg.Delay != nil {
+			set("delay", func() { flags.delay = *cfg.Delay })
+		}
+		if cfg.Fuzz != nil {
+			set("fuzz", func() { flags.fuzz = *cfg.Fuzz })
+		}
 	}
+
+	// Shared keys
 	if cfg.Model != nil {
 		set("model", func() { flags.model = *cfg.Model })
 	}
 	if cfg.Provider != nil {
 		set("provider", func() { flags.provider = *cfg.Provider })
-	}
-	if cfg.Delay != nil {
-		set("delay", func() { flags.delay = *cfg.Delay })
-	}
-	if cfg.Fuzz != nil {
-		set("fuzz", func() { flags.fuzz = *cfg.Fuzz })
 	}
 	if cfg.Trust != nil {
 		set("trust", func() { flags.trust = *cfg.Trust })
@@ -213,20 +255,6 @@ func ApplyFileConfig(cfg *FileConfig, changed func(string) bool, verbose bool, s
 	}
 	if cfg.SystemPrompt != nil {
 		set("system-prompt", func() { flags.systemPrompt = *cfg.SystemPrompt })
-	}
-	if cfg.Workers != nil {
-		set("workers", func() { watchFlags.workers = *cfg.Workers })
-	}
-	if cfg.Every != nil {
-		set("every", func() {
-			d, err := time.ParseDuration(*cfg.Every)
-			if err == nil {
-				watchFlags.every = d
-			}
-		})
-	}
-	if cfg.EveryImmediate != nil {
-		set("every-immediate", func() { watchFlags.everyImmediate = *cfg.EveryImmediate })
 	}
 	if cfg.WorkDir != nil {
 		set("workdir", func() { flags.workdir = *cfg.WorkDir })

@@ -300,68 +300,6 @@ func TestExpandGlobDirs_FastPath(t *testing.T) {
 	})
 }
 
-// --- detectShellGlobExpansion ---
-
-func TestDetectShellGlobExpansion(t *testing.T) {
-	t.Run("detects expansion when positional args are dirs with same suffix", func(t *testing.T) {
-		dir1 := t.TempDir()
-		dir2 := t.TempDir()
-		// Create matching subdirs
-		ready1 := filepath.Join(dir1, ".frontloop", "ready")
-		ready2 := filepath.Join(dir2, ".frontloop", "ready")
-		os.MkdirAll(ready1, 0755)
-		os.MkdirAll(ready2, 0755)
-
-		err := detectShellGlobExpansion([]string{ready1}, []string{ready2})
-		if err == nil {
-			t.Fatal("expected error, got nil")
-		}
-		if !strings.Contains(err.Error(), "shell expanded") {
-			t.Errorf("expected shell expansion warning, got: %v", err)
-		}
-	})
-
-	t.Run("no error when watch is a glob pattern", func(t *testing.T) {
-		err := detectShellGlobExpansion([]string{"**/.frontloop/ready"}, []string{"/some/dir/ready"})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("no error when positional args are not directories", func(t *testing.T) {
-		dir := t.TempDir()
-		ready := filepath.Join(dir, ".frontloop", "ready")
-		os.MkdirAll(ready, 0755)
-
-		err := detectShellGlobExpansion([]string{ready}, []string{"some prompt text"})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("no error when no watch flag", func(t *testing.T) {
-		err := detectShellGlobExpansion(nil, []string{"/some/path"})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("no error when positional args have different suffix", func(t *testing.T) {
-		dir1 := t.TempDir()
-		dir2 := t.TempDir()
-		// Different basenames
-		ready1 := filepath.Join(dir1, "ready")
-		other2 := filepath.Join(dir2, "other")
-		os.MkdirAll(ready1, 0755)
-		os.MkdirAll(other2, 0755)
-
-		err := detectShellGlobExpansion([]string{ready1}, []string{other2})
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-	})
-}
-
 // --- claimFromDirs ---
 
 func TestWorkerCoordinator_ClaimFromDirs(t *testing.T) {

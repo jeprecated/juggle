@@ -326,7 +326,7 @@ func RunWatch(cfg Config) error {
 		touchTrack = newTouchTracker()
 	}
 
-	everyFirst := !cfg.EveryImmediate
+	everyFirst := !cfg.Now
 
 	for i := 1; max == 0 || i <= max; i++ {
 		select {
@@ -989,7 +989,7 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
-	everyFirst := !cfg.EveryImmediate
+	everyFirst := !cfg.Now
 
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown before starting each iteration
@@ -1193,7 +1193,7 @@ func runTouchWatch(cfg Config) error {
 	}
 
 	lastMod := info.ModTime()
-	dirty := cfg.Every > 0 && cfg.EveryImmediate
+	dirty := cfg.Every > 0 && cfg.Now
 
 	stats := runStats{runID: cfg.RunID, start: time.Now(), model: cfg.Model}
 

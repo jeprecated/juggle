@@ -139,9 +139,7 @@ func TestLoopCmdRunsPromptWithMockRunner(t *testing.T) {
 	}
 }
 
-// TestRootCmdStillRunsDuringTransition verifies the bare juggle handler still executes
-// (it should return help when no prompt content is provided, not an error or panic).
-func TestRootCmdStillRunsDuringTransition(t *testing.T) {
+func TestRunFunctionStillWorksDirectly(t *testing.T) {
 	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
 	var stdout, stderr bytes.Buffer
 	cfg := Config{
@@ -152,7 +150,30 @@ func TestRootCmdStillRunsDuringTransition(t *testing.T) {
 		Stderr:     &stderr,
 	}
 	if err := Run(cfg); err != nil {
-		t.Errorf("bare juggle Run() error during transition period: %v", err)
+		t.Errorf("Run() error: %v", err)
+	}
+}
+
+func TestBareJuggleShowsHelp(t *testing.T) {
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(nil)
+	rootCmd.SetArgs([]string{})
+	err := rootCmd.Execute()
+	if err != nil {
+		t.Errorf("bare juggle should not error, got: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "juggle loop") {
+		t.Errorf("bare juggle help should mention 'juggle loop', got:\n%s", out)
+	}
+}
+
+func TestBareJuggleWithArgsErrors(t *testing.T) {
+	rootCmd.SetArgs([]string{"some", "prompt"})
+	err := rootCmd.Execute()
+	if err == nil {
+		t.Error("bare juggle with args should error")
 	}
 }
 

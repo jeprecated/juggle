@@ -18,56 +18,6 @@ func isGlobPattern(s string) bool {
 	return strings.ContainsAny(s, "*?[")
 }
 
-// detectShellGlobExpansion returns an error if it looks like the shell expanded
-// a glob pattern before juggle received it. This happens when users forget to
-// quote the --watch value (e.g. --watch **/.frontloop/ready instead of
-// --watch '**/.frontloop/ready'). The shell expands the ** into literal paths,
-// --watch gets the first one, and the rest become positional args.
-func detectShellGlobExpansion(watch []string, positionalArgs []string) error {
-	if len(watch) != 1 || len(positionalArgs) == 0 {
-		return nil
-	}
-	w := watch[0]
-	if isGlobPattern(w) {
-		return nil // watch value still has glob chars, no expansion happened
-	}
-
-	// Check if the watch path is a directory
-	wInfo, err := os.Stat(w)
-	if err != nil || !wInfo.IsDir() {
-		return nil
-	}
-
-	// Count how many positional args are directories with the same basename
-	// pattern as the watch dir (strong signal of shell expansion).
-	wSuffix := filepath.Base(w)
-	var dirArgs []string
-	for _, arg := range positionalArgs {
-		if strings.HasPrefix(arg, "@") {
-			continue // file reference, not a shell-expanded path
-		}
-		info, statErr := os.Stat(arg)
-		if statErr != nil || !info.IsDir() {
-			continue
-		}
-		if filepath.Base(arg) == wSuffix {
-			dirArgs = append(dirArgs, arg)
-		}
-	}
-
-	if len(dirArgs) == 0 {
-		return nil
-	}
-
-	return fmt.Errorf(
-		"it looks like your shell expanded the --watch glob before juggle received it;"+
-			" --watch got: %s;"+
-			" positional args include %d more matching directories: %s;"+
-			" hint: quote the pattern, e.g. juggle --watch '**/%s'",
-		w, len(dirArgs), strings.Join(dirArgs, ", "), wSuffix,
-	)
-}
-
 // FindVCSRoot walks up from dir looking for a .git or .jj marker directory.
 // Returns the directory containing the marker, or "" if none found before the filesystem root.
 func FindVCSRoot(dir string) string {

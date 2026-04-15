@@ -434,32 +434,13 @@ func TestRunLoop_ShutdownPrintsSummary(t *testing.T) {
 func TestHelpExamplesExist(t *testing.T) {
 	checks := []string{
 		`"fix the failing tests"`,
-		"@task.md",
-		"juggle watch",
-		"--trust",
+		"juggle loop",
+		"juggle queue",
+		"--every",
 	}
 	for _, want := range checks {
 		if !strings.Contains(rootCmd.Example, want) {
 			t.Errorf("rootCmd.Example missing %q", want)
-		}
-	}
-}
-
-func TestWatchSubcommand_Exists(t *testing.T) {
-	cmd, _, err := rootCmd.Find([]string{"watch"})
-	if err != nil {
-		t.Fatalf("finding watch subcommand: %v", err)
-	}
-	if cmd == nil || cmd.Name() != "watch" {
-		t.Error("watch subcommand not registered under rootCmd")
-	}
-}
-
-func TestWatchSubcommand_HasWatchSpecificFlags(t *testing.T) {
-	cmd, _, _ := rootCmd.Find([]string{"watch"})
-	for _, name := range []string{"dir", "workers", "dashboard"} {
-		if cmd.Flags().Lookup(name) == nil {
-			t.Errorf("watch subcommand missing --%s flag", name)
 		}
 	}
 }
@@ -475,12 +456,20 @@ func TestRootCmd_WatchFlagsRemoved(t *testing.T) {
 	}
 }
 
-func TestWatchSubcommand_InheritsSharedFlags(t *testing.T) {
-	// Shared flags are on root's PersistentFlags; cobra inherits them to all subcommands.
+func TestSharedFlags_OnPersistent(t *testing.T) {
 	pf := rootCmd.PersistentFlags()
-	for _, name := range []string{"iterations", "model", "trust", "dry-run", "cmd-before", "cmd-after"} {
+	for _, name := range []string{"model", "trust", "dry-run", "cmd-before", "cmd-after"} {
 		if pf.Lookup(name) == nil {
-			t.Errorf("shared flag --%s should be on root's persistent flags (inherited by watch)", name)
+			t.Errorf("shared flag --%s should be on root's persistent flags", name)
+		}
+	}
+}
+
+func TestLoopOnlyFlags_NotPersistent(t *testing.T) {
+	pf := rootCmd.PersistentFlags()
+	for _, name := range []string{"iterations", "delay", "fuzz", "resume", "continue"} {
+		if pf.Lookup(name) != nil {
+			t.Errorf("loop-only flag --%s should not be on persistent flags", name)
 		}
 	}
 }
@@ -1512,5 +1501,19 @@ func TestRunLoop_Continue_DefaultOff(t *testing.T) {
 		if call.Continue {
 			t.Errorf("iteration %d: did not expect Continue=true when flag not set", i+1)
 		}
+	}
+}
+
+func TestWatchSubcommandDoesNotExist(t *testing.T) {
+	cmd, _, _ := rootCmd.Find([]string{"watch"})
+	if cmd != nil && cmd.Name() == "watch" {
+		t.Error("'watch' should not be a registered subcommand; use 'juggle queue --watch' instead")
+	}
+}
+
+func TestServeSubcommandDoesNotExist(t *testing.T) {
+	cmd, _, _ := rootCmd.Find([]string{"serve"})
+	if cmd != nil && cmd.Name() == "serve" {
+		t.Error("'serve' should not be a registered subcommand; use 'juggle queue --serve' instead")
 	}
 }

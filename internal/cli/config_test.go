@@ -130,7 +130,7 @@ func TestApplyFileConfig_OverridesUnchangedFlags(t *testing.T) {
 
 	changed := func(string) bool { return false }
 	var stderr bytes.Buffer
-	ApplyFileConfig(cfg, changed, false, &stderr)
+	ApplyFileConfig(cfg, changed, false, &stderr, "loop")
 
 	if flags.iterations != 5 {
 		t.Errorf("expected iterations=5, got %d", flags.iterations)
@@ -153,7 +153,7 @@ func TestApplyFileConfig_DoesNotOverrideChangedFlags(t *testing.T) {
 
 	changed := func(name string) bool { return name == "iterations" }
 	var stderr bytes.Buffer
-	ApplyFileConfig(cfg, changed, false, &stderr)
+	ApplyFileConfig(cfg, changed, false, &stderr, "loop")
 
 	if flags.iterations != 7 {
 		t.Errorf("expected iterations=7 (flag value preserved), got %d", flags.iterations)
@@ -173,7 +173,7 @@ func TestApplyFileConfig_VerboseOutput(t *testing.T) {
 
 	changed := func(string) bool { return false }
 	var stderr bytes.Buffer
-	ApplyFileConfig(cfg, changed, true, &stderr)
+	ApplyFileConfig(cfg, changed, true, &stderr, "loop")
 
 	out := stderr.String()
 	if !strings.Contains(out, "model") {
@@ -182,41 +182,32 @@ func TestApplyFileConfig_VerboseOutput(t *testing.T) {
 }
 
 func TestApplyFileConfig_NilConfig(t *testing.T) {
-	// Should not panic or modify anything
 	var stderr bytes.Buffer
-	ApplyFileConfig(nil, func(string) bool { return false }, false, &stderr)
+	ApplyFileConfig(nil, func(string) bool { return false }, false, &stderr, "loop")
 }
 
-func TestApplyFileConfig_AllSupportedFields(t *testing.T) {
+func TestApplyFileConfig_LoopOnlyFields(t *testing.T) {
 	origIterations := flags.iterations
 	origDelay := flags.delay
 	origTrust := flags.trust
-	origMaxFailures := flags.maxFailures
-	origWorkers := watchFlags.workers
 	t.Cleanup(func() {
 		flags.iterations = origIterations
 		flags.delay = origDelay
 		flags.trust = origTrust
-		flags.maxFailures = origMaxFailures
-		watchFlags.workers = origWorkers
 	})
 
 	n := 3
 	d := 5
 	tr := true
-	mf := 2
-	w := 4
 	cfg := &FileConfig{
-		Iterations:  &n,
-		Delay:       &d,
-		Trust:       &tr,
-		MaxFailures: &mf,
-		Workers:     &w,
+		Iterations: &n,
+		Delay:      &d,
+		Trust:      &tr,
 	}
 
 	changed := func(string) bool { return false }
 	var stderr bytes.Buffer
-	ApplyFileConfig(cfg, changed, false, &stderr)
+	ApplyFileConfig(cfg, changed, false, &stderr, "loop")
 
 	if flags.iterations != 3 {
 		t.Errorf("iterations: expected 3, got %d", flags.iterations)
@@ -227,11 +218,84 @@ func TestApplyFileConfig_AllSupportedFields(t *testing.T) {
 	if !flags.trust {
 		t.Error("trust: expected true")
 	}
-	if flags.maxFailures != 2 {
-		t.Errorf("max-failures: expected 2, got %d", flags.maxFailures)
+}
+
+func TestApplyFileConfig_QueueOnlyFields(t *testing.T) {
+	origWorkers := queueFlags.workers
+	origOnTouch := queueFlags.onTouch
+	origDashboard := queueFlags.dashboard
+	t.Cleanup(func() {
+		queueFlags.workers = origWorkers
+		queueFlags.onTouch = origOnTouch
+		queueFlags.dashboard = origDashboard
+	})
+
+	w := 4
+	ot := true
+	db := true
+	cfg := &FileConfig{
+		Workers:   &w,
+		OnTouch:   &ot,
+		Dashboard: &db,
 	}
-	if watchFlags.workers != 4 {
-		t.Errorf("workers: expected 4, got %d", watchFlags.workers)
+
+	changed := func(string) bool { return false }
+	var stderr bytes.Buffer
+	ApplyFileConfig(cfg, changed, false, &stderr, "queue")
+
+	if queueFlags.workers != 4 {
+		t.Errorf("workers: expected 4, got %d", queueFlags.workers)
+	}
+	if !queueFlags.onTouch {
+		t.Error("on-touch: expected true")
+	}
+	if !queueFlags.dashboard {
+		t.Error("dashboard: expected true")
+	}
+}
+
+func TestApplyFileConfig_LoopIgnoresQueueKeys(t *testing.T) {
+	origWorkers := queueFlags.workers
+	t.Cleanup(func() {
+		queueFlags.workers = origWorkers
+	})
+
+	queueFlags.workers = 1
+	w := 8
+	cfg := &FileConfig{Workers: &w}
+
+	changed := func(string) bool { return false }
+	var stderr bytes.Buffer
+	ApplyFileConfig(cfg, changed, false, &stderr, "loop")
+
+	if queueFlags.workers != 1 {
+		t.Errorf("workers should not change in loop mode: expected 1, got %d", queueFlags.workers)
+	}
+}
+
+func TestApplyFileConfig_QueueIgnoresLoopKeys(t *testing.T) {
+	origIterations := flags.iterations
+	origDelay := flags.delay
+	t.Cleanup(func() {
+		flags.iterations = origIterations
+		flags.delay = origDelay
+	})
+
+	flags.iterations = 0
+	flags.delay = 0
+	n := 10
+	d := 30
+	cfg := &FileConfig{Iterations: &n, Delay: &d}
+
+	changed := func(string) bool { return false }
+	var stderr bytes.Buffer
+	ApplyFileConfig(cfg, changed, false, &stderr, "queue")
+
+	if flags.iterations != 0 {
+		t.Errorf("iterations should not change in queue mode: expected 0, got %d", flags.iterations)
+	}
+	if flags.delay != 0 {
+		t.Errorf("delay should not change in queue mode: expected 0, got %d", flags.delay)
 	}
 }
 
@@ -273,21 +337,21 @@ func TestLoadConfig_WatchAsList(t *testing.T) {
 }
 
 func TestApplyFileConfig_WatchSetsFlags(t *testing.T) {
-	origWatch := watchFlags.dirs
-	t.Cleanup(func() { watchFlags.dirs = origWatch })
+	origWatch := queueFlags.watch
+	t.Cleanup(func() { queueFlags.watch = origWatch })
 
-	watchFlags.dirs = nil
+	queueFlags.watch = nil
 	w := tomlStringOrList([]string{"./tasks1", "./tasks2"})
 	cfg := &FileConfig{Watch: &w}
 
 	changed := func(string) bool { return false }
 	var stderr bytes.Buffer
-	ApplyFileConfig(cfg, changed, false, &stderr)
+	ApplyFileConfig(cfg, changed, false, &stderr, "queue")
 
-	if len(watchFlags.dirs) != 2 {
-		t.Fatalf("expected 2 watch dirs, got %d: %v", len(watchFlags.dirs), watchFlags.dirs)
+	if len(queueFlags.watch) != 2 {
+		t.Fatalf("expected 2 watch dirs, got %d: %v", len(queueFlags.watch), queueFlags.watch)
 	}
-	if watchFlags.dirs[0] != "./tasks1" || watchFlags.dirs[1] != "./tasks2" {
-		t.Errorf("unexpected watch flags: %v", watchFlags.dirs)
+	if queueFlags.watch[0] != "./tasks1" || queueFlags.watch[1] != "./tasks2" {
+		t.Errorf("unexpected watch flags: %v", queueFlags.watch)
 	}
 }

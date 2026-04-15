@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -10,13 +11,16 @@ import (
 // flagGroupKey is the pflag annotation key used to assign a flag to a help group.
 const flagGroupKey = "group"
 
+// excludeFlagsKey is the cobra command annotation key for comma-separated flag
+// names that should be suppressed from inherited help output.
+const excludeFlagsKey = "exclude-flags"
+
 // groupOrder defines the display order of flag groups in --help output.
 var groupOrder = []string{
 	"Loop Control",
+	"Queue Mode",
 	"Agent Configuration",
 	"Lifecycle Hooks",
-	"Watch Mode",
-	"Serve",
 	"Output",
 }
 
@@ -31,6 +35,19 @@ func setFlagGroup(f *pflag.FlagSet, name, group string) {
 		fl.Annotations = make(map[string][]string)
 	}
 	fl.Annotations[flagGroupKey] = []string{group}
+}
+
+func parseExcludeFlags(cmd *cobra.Command) map[string]bool {
+	excluded := make(map[string]bool)
+	cmd.LocalFlags().VisitAll(func(f *pflag.Flag) {
+		excluded[f.Name] = true
+	})
+	if v, ok := cmd.Annotations[excludeFlagsKey]; ok && v != "" {
+		for _, name := range strings.Split(v, ",") {
+			excluded[strings.TrimSpace(name)] = true
+		}
+	}
+	return excluded
 }
 
 // groupedHelp is a cobra help function that renders flags sorted into named groups.
@@ -79,7 +96,14 @@ func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 
 	cmd.Flags().VisitAll(addFlag)
 	cmd.PersistentFlags().VisitAll(addFlag)
-	cmd.InheritedFlags().VisitAll(addFlag)
+
+	excluded := parseExcludeFlags(cmd)
+	cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
+		if excluded[f.Name] {
+			return
+		}
+		addFlag(f)
+	})
 
 	// Render groups in defined order
 	for _, grp := range groupOrder {

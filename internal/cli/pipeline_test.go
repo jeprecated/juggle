@@ -41,13 +41,16 @@ func TestPipelineHelpContainsPipelineFocusedText(t *testing.T) {
 }
 
 func TestPipelineFileAndInlineArgsMutuallyExclusive(t *testing.T) {
-	err := runPipelineCmd(nil, []string{"agent", "foo", "do stuff"})
-	// no --file set, this will attempt to parse inline args (may fail on validation, but not on the mutual exclusion check)
-	// Now test with file set:
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "done"})
+	pipelineTestRunner = mock
+	defer func() { pipelineTestRunner = nil }()
+
+	_ = runPipelineCmd(nil, []string{"agent", "foo", "do stuff"})
+
 	old := pipelineFile
 	pipelineFile = "some.toml"
 	defer func() { pipelineFile = old }()
-	err = runPipelineCmd(nil, []string{"agent", "foo", "do stuff"})
+	err := runPipelineCmd(nil, []string{"agent", "foo", "do stuff"})
 	if err == nil {
 		t.Fatal("expected error when both --file and inline args provided")
 	}

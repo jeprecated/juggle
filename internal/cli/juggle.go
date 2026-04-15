@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -123,7 +124,8 @@ type Config struct {
 	Dashboard         bool                    // Show TUI dashboard for watch workers (auto-enabled for glob watch)
 	OnTouch           bool                    // Re-process files on mtime change (touch) in addition to new files
 	Every             time.Duration           // Run on a fixed interval even without a watch file
-	EveryImmediate    bool                    // Run immediately on first iteration with --every
+	Now               bool                    // Run immediately on first iteration, then wait for triggers
+	Serve             string                  // HTTP serve address for queue trigger endpoint (empty = disabled)
 	WorkerID          int                     // Worker identifier for log entries (0 = main/no worker, -1 = omit)
 	OnIterDone        func(iter, maxIter int) // called after each successful iteration (dashboard hook; nil = disabled)
 	ID                string                  // User-given session name (--id flag)
@@ -248,24 +250,22 @@ var flags struct {
 	command         string
 }
 
-// watchFlags holds flags specific to the watch subcommand.
-var watchFlags struct {
-	dirs           []string
-	workers        int
-	dashboard      bool
-	onTouch        bool
-	every          time.Duration
-	everyImmediate bool
+// queueFlags holds flags specific to the queue subcommand.
+var queueFlags struct {
+	watch     []string
+	onTouch   bool
+	every     time.Duration
+	now       bool
+	workers   int
+	dashboard bool
+	serve     string
 }
 
 func init() {
 	// pf holds shared flags inherited by all subcommands.
 	pf := rootCmd.PersistentFlags()
-	pf.IntVarP(&flags.iterations, "iterations", "n", 0, "max iterations (0 = unlimited)")
 	pf.StringVar(&flags.model, "model", "sonnet", "model name")
 	pf.StringVar(&flags.provider, "provider", "claude", "provider name")
-	pf.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
-	pf.IntVar(&flags.fuzz, "fuzz", 0, "+/- random variance in minutes")
 	pf.BoolVar(&flags.trust, "trust", false, "bypass permission checks")
 	pf.BoolVar(&flags.plan, "plan", false, "read-only plan mode (shortcut for --permission-mode plan)")
 	pf.BoolVar(&flags.interactive, "interactive", false, "interactive TUI mode")
@@ -303,23 +303,32 @@ func init() {
 	pf.BoolVar(&flags.noConfig, "no-config", false, "skip config file loading")
 	pf.StringVar(&flags.id, "id", "", "session identifier for juggle trigger targeting")
 	pf.BoolVar(&flags.noLog, "no-log", false, "disable automatic session logging")
-	pf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
-	pf.BoolVar(&flags.continueSession, "continue", false, "pass --continue to the provider on the first iteration (resumes last session)")
+
+	// Loop-only flags: local to rootCmd (not inherited by queue).
+	rf := rootCmd.Flags()
+	rf.IntVarP(&flags.iterations, "iterations", "n", 0, "max iterations (0 = unlimited)")
+	rf.IntVar(&flags.delay, "delay", 0, "minutes between iterations")
+	rf.IntVar(&flags.fuzz, "fuzz", 0, "+/- random variance in minutes")
+	rf.BoolVar(&flags.resume, "resume", false, "resume from last completed iteration in the --log file (requires --log)")
+	rf.BoolVar(&flags.continueSession, "continue", false, "pass --continue to the provider on the first iteration (resumes last session)")
 
 	// Hide less-common flags to reduce noise in default help output
-	_ = pf.MarkHidden("fuzz")
+	_ = rf.MarkHidden("fuzz")
 	_ = pf.MarkHidden("interactive")
 	_ = pf.MarkHidden("show-thinking")
 	_ = pf.MarkHidden("provider")
 
-	// Assign visible flags to help groups. Hidden flags (fuzz, interactive,
-	// show-thinking, provider) are intentionally omitted here.
-	for _, name := range []string{"iterations", "delay", "timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt", "resume"} {
+	// Assign visible flags to help groups.
+	for _, name := range []string{"iterations", "delay", "resume"} {
+		setFlagGroup(rf, name, "Loop Control")
+	}
+	for _, name := range []string{"timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt"} {
 		setFlagGroup(pf, name, "Loop Control")
 	}
-	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra", "continue"} {
+	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
 		setFlagGroup(pf, name, "Agent Configuration")
 	}
+	setFlagGroup(rf, "continue", "Agent Configuration")
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
 		setFlagGroup(pf, name, "Lifecycle Hooks")
 	}
@@ -327,22 +336,8 @@ func init() {
 		setFlagGroup(pf, name, "Output")
 	}
 
-	// Watch subcommand flags
-	wf := watchCmd.Flags()
-	wf.StringArrayVar(&watchFlags.dirs, "dir", nil, "additional watch directory (repeatable)")
-	wf.IntVar(&watchFlags.workers, "workers", 1, "number of concurrent watch workers")
-	wf.BoolVar(&watchFlags.dashboard, "dashboard", false, "show TUI dashboard for watch workers (default on for glob watch)")
-	wf.BoolVar(&watchFlags.onTouch, "on-touch", false, "trigger on file touch (mtime change) in addition to new files; allows watching a single file as a trigger")
-	wf.DurationVar(&watchFlags.every, "every", 0, "run on a fixed interval (e.g. 30s, 5m) even without a watch file")
-	wf.BoolVar(&watchFlags.everyImmediate, "every-immediate", false, "with --every, run immediately on startup instead of waiting the first interval")
-	for _, name := range []string{"dir", "workers", "dashboard", "on-touch", "every", "every-immediate"} {
-		setFlagGroup(wf, name, "Watch Mode")
-	}
-
 	rootCmd.SetHelpFunc(groupedHelp)
-	watchCmd.SetHelpFunc(groupedHelp)
 	rootCmd.AddCommand(completionCmd)
-	rootCmd.AddCommand(watchCmd)
 
 	// Loop subcommand flags
 	registerSharedFlags(loopCmd)
@@ -357,6 +352,22 @@ func init() {
 		setFlagGroup(lf, name, "Loop Control")
 	}
 	rootCmd.AddCommand(loopCmd)
+
+	// Queue subcommand flags
+	registerSharedFlags(queueCmd)
+	qf := queueCmd.Flags()
+	qf.StringArrayVar(&queueFlags.watch, "watch", nil, "watch directory or glob pattern for task files (repeatable)")
+	qf.BoolVar(&queueFlags.onTouch, "on-touch", false, "trigger on file touch (mtime change) in addition to new files")
+	qf.DurationVar(&queueFlags.every, "every", 0, "run on a fixed interval (e.g. 30s, 5m)")
+	qf.BoolVar(&queueFlags.now, "now", false, "run immediately on first iteration, then wait for triggers")
+	qf.IntVar(&queueFlags.workers, "workers", 1, "number of concurrent watch workers")
+	qf.BoolVar(&queueFlags.dashboard, "dashboard", false, "show TUI dashboard for watch workers")
+	qf.StringVar(&queueFlags.serve, "serve", "", "start HTTP server as trigger source (e.g. :8080, 0.0.0.0:8080)")
+	for _, name := range []string{"watch", "on-touch", "every", "now", "workers", "dashboard", "serve"} {
+		setFlagGroup(qf, name, "Queue Mode")
+	}
+	// excludeFlagsKey annotation suppresses loop-specific inherited flags from queue's help.
+	rootCmd.AddCommand(queueCmd)
 }
 
 // registerSharedFlags registers all flags shared between loop and queue subcommands.
@@ -448,6 +459,37 @@ var loopCmd = &cobra.Command{
 	SilenceErrors: true,
 }
 
+var queueCmd = &cobra.Command{
+	Use:   "queue [prompt-content...]",
+	Short: "Wait for triggers, then run an agent",
+	Long: `Wait for work, then run an AI agent. Requires at least one trigger source
+(--watch, --every, --serve, or --id). All positional args are prompt content (strings or @file references).`,
+	Example: `  # Watch a directory for task files
+  juggle queue @rules.md --watch ./tasks/
+
+  # Multiple watch directories
+  juggle queue @rules.md --watch ./tasks/ --watch ./more/
+
+  # Run on a fixed interval
+  juggle queue "check for issues" --every 5m
+
+  # HTTP trigger: POST body becomes the trigger message
+  juggle queue @rules.md --serve :8080 --id myapp
+
+  # Combine triggers: watch + interval + immediate first run
+  juggle queue @rules.md --watch ./tasks/ --every 30m --now
+
+  # Parallel workers with dashboard
+  juggle queue @rules.md --watch ./tasks/ --workers 4 --dashboard`,
+	Args:              cobra.ArbitraryArgs,
+	ValidArgsFunction: completeArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return runQueueCmd(cmd, args)
+	},
+	SilenceUsage:  true,
+	SilenceErrors: true,
+}
+
 var completionCmd = &cobra.Command{
 	Use:   "completion [bash|zsh|fish|nushell|powershell]",
 	Short: "Generate shell completion script",
@@ -472,65 +514,25 @@ var completionCmd = &cobra.Command{
 	},
 }
 
-var watchCmd = &cobra.Command{
-	Use:   "watch <dir|file> [prompt-content...]",
-	Short: "Watch a directory for task files and run the agent on each",
-	Long: `Watch a directory for task files. The first positional argument is the watch
-directory; remaining positional arguments are prompt content (@file references supported).
-
-With --on-touch, also re-process files whose modification time changes (touch events).
-When the target is a file instead of a directory, --on-touch watches that single file
-as a trigger: each touch runs an agent iteration with the provided prompt.
-
-Additional watch directories can be added with --dir (repeatable).`,
-	Example: `  # Watch a directory, run 5 iterations per task
-  juggle watch ./tasks/ @rules.md -n 5
-
-  # Multiple watch directories
-  juggle watch ./tasks/ @rules.md --dir ./more-tasks/
-
-  # Watch with multiple workers and dashboard
-  juggle watch ./tasks/ --workers 4 --dashboard
-
-  # Watch a single file as a trigger
-  juggle watch ./trigger.lock "run the deploy" --on-touch
-
-  # Re-process touched files in a directory
-  juggle watch ./tasks/ @rules.md --on-touch`,
-	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runWatchSubcmd(cmd, args)
-	},
-	SilenceUsage:  true,
-	SilenceErrors: true,
-}
-
 var rootCmd = &cobra.Command{
-	Use:     "juggle [prompt-content...]",
+	Use:     "juggle <command> [flags]",
 	Short:   "Minimal agent loop runner",
 	Version: "dev",
-	Long:    `Run an AI agent in a loop. All positional args are prompt content (strings or @file references).`,
-	Example: `  # Basic: run 3 iterations
-  juggle "fix the failing tests" -n 3
+	Long: `Run an AI agent in a loop or wait for triggers to run it.
 
-  # With a prompt file and trust mode
-  juggle @task.md --trust -n 10
+Use "juggle loop" to run immediately and keep running.
+Use "juggle queue" to wait for triggers (watch, interval, HTTP).`,
+	Example: `  # Run an agent in a loop
+  juggle loop "fix the failing tests" -n 3
 
-  # Watch mode: pick up tasks from a directory
-  juggle watch ./tasks/ @rules.md
+  # Watch a directory for task files
+  juggle queue @rules.md --watch ./tasks/
 
-  # With hooks: run tests after each iteration, stop when they pass
-  juggle --cmd-after "npm test" --stop-when "npm test" @task.md
-
-  # Multi-phase: run a tidy agent after each iteration
-  juggle --agent-after @tidy @task.md -n 5
-
-  # Pass provider-specific flags after -- (appended to agent CLI as-is)
-  juggle @task.md -- --max-turns 50 --allowedTools Bash,Read`,
-	Args:              cobra.ArbitraryArgs,
-	ValidArgsFunction: completeArgs,
+  # Run on a fixed interval
+  juggle queue "check for issues" --every 5m`,
+	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return run(cmd, args)
+		return cmd.Help()
 	},
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -588,7 +590,7 @@ func run(cmd *cobra.Command, args []string) error {
 		if fileCfg.Verbose != nil && !cmd.Flags().Changed("verbose") {
 			flags.verbose = *fileCfg.Verbose
 		}
-		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr)
+		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr, "loop")
 	}
 
 	resolved, err := ResolveArgs(normalArgs)
@@ -774,17 +776,16 @@ func runLoopCmd(cmd *cobra.Command, args []string) error {
 	return run(cmd, args)
 }
 
-// runWatchSubcmd is the cobra RunE handler for the watch subcommand.
-// args[0] is the watch directory; args[1:] are prompt content.
-func runWatchSubcmd(cmd *cobra.Command, args []string) error {
+func runQueueCmd(cmd *cobra.Command, args []string) error {
 	normalArgs, passthroughArgs := splitPassthroughArgs(args, cmd.Flags().ArgsLenAtDash())
 
-	watchDir := normalArgs[0]
-	promptArgs := normalArgs[1:]
+	if len(queueFlags.watch) == 0 && queueFlags.every == 0 && flags.id == "" && queueFlags.serve == "" {
+		return fmt.Errorf("queue requires at least one trigger: --watch, --every, --serve, or --id")
+	}
+	if queueFlags.serve != "" && flags.id == "" {
+		return fmt.Errorf("--serve requires --id")
+	}
 
-	watchDirs := append([]string{watchDir}, watchFlags.dirs...)
-
-	// Load and apply config file defaults before using any flag values.
 	fileCfg, _, cfgErr := LoadConfig(flags.noConfig, ".", os.Stderr)
 	if cfgErr != nil {
 		return cfgErr
@@ -793,20 +794,14 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		if fileCfg.Verbose != nil && !cmd.Flags().Changed("verbose") {
 			flags.verbose = *fileCfg.Verbose
 		}
-		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr)
+		ApplyFileConfig(fileCfg, cmd.Flags().Changed, flags.verbose, os.Stderr, "queue")
 	}
 
-	resolved, err := ResolveArgs(promptArgs)
+	resolved, err := ResolveArgs(normalArgs)
 	if err != nil {
 		return err
 	}
 
-	// Detect shell glob expansion on the watch directory argument.
-	if err := detectShellGlobExpansion(watchDirs, promptArgs); err != nil {
-		return err
-	}
-
-	// Read piped stdin as additional prompt content when not in interactive mode.
 	if !flags.interactive {
 		if info, statErr := os.Stdin.Stat(); statErr == nil {
 			isTTY := info.Mode()&os.ModeCharDevice != 0
@@ -869,17 +864,15 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 
 	cfg := Config{
 		Content:           strings.Join(resolved, "\n\n"),
-		Watch:             watchDirs,
-		Workers:           watchFlags.workers,
-		Dashboard:         watchFlags.dashboard,
-		OnTouch:           watchFlags.onTouch,
-		Every:             watchFlags.every,
-		EveryImmediate:    watchFlags.everyImmediate,
-		Iterations:        flags.iterations,
+		Watch:             queueFlags.watch,
+		Workers:           queueFlags.workers,
+		Dashboard:         queueFlags.dashboard,
+		OnTouch:           queueFlags.onTouch,
+		Every:             queueFlags.every,
+		Now:               queueFlags.now,
+		Serve:             queueFlags.serve,
 		Model:             flags.model,
 		Provider:          flags.provider,
-		Delay:             flags.delay,
-		Fuzz:              flags.fuzz,
 		Trust:             flags.trust,
 		Plan:              flags.plan,
 		Interactive:       flags.interactive,
@@ -908,22 +901,18 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
 		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
-		AgentCmd:            flags.agentCmd,
+		AgentCmd:          flags.agentCmd,
 		Command:           flags.command,
-		SystemPrompt:        systemPrompt,
-		RetryPrompt:         retryPrompt,
+		SystemPrompt:      systemPrompt,
+		RetryPrompt:       retryPrompt,
 		WorkDir:           flags.workdir,
-		Resume:            flags.resume,
-		ContinueSession:   flags.continueSession,
 		ID:                flags.id,
 	}
 
-	// --agent-cmd auto-sets --provider custom
 	if cfg.AgentCmd != "" && cfg.Provider == "claude" {
 		cfg.Provider = "custom"
 	}
 
-	// Build runner from provider flag
 	var p provider.Provider
 	if provider.Type(cfg.Provider) == provider.TypeCustom {
 		if cfg.AgentCmd == "" {
@@ -944,7 +933,6 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 		return Run(cfg)
 	}
 
-	// Set up signal handling: first signal = graceful shutdown, second = force kill
 	shutdown := make(chan struct{})
 	var shutdownOnce sync.Once
 	forceCtx, forceCancel := context.WithCancel(context.Background())
@@ -968,8 +956,28 @@ func runWatchSubcmd(cmd *cobra.Command, args []string) error {
 	cfg.Shutdown = shutdown
 	cfg.ForceCtx = forceCtx
 
-	setupSession(&cfg, stderr, "watch")
+	setupSession(&cfg, stderr, "queue")
 	defer teardownSession(&cfg)
+
+	if queueFlags.serve != "" {
+		addr := parseServeAddr(queueFlags.serve)
+		srv := &http.Server{
+			Addr:    addr,
+			Handler: newServeHandler(cfg.EffectiveID),
+		}
+		go func() {
+			<-shutdown
+			shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = srv.Shutdown(shutCtx)
+		}()
+		go func() {
+			fmt.Fprintf(stderr, "juggle queue: listening on http://%s\n", addr)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				fmt.Fprintf(stderr, "serve error: %v\n", err)
+			}
+		}()
+	}
 
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
