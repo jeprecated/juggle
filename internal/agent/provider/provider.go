@@ -78,6 +78,7 @@ type RunOptions struct {
 	PassthroughArgs   []string        // extra flags appended verbatim to the agent CLI command
 	CommandOverride   string          // override the provider binary name (e.g. "cc" instead of "claude")
 	Continue          bool            // pass --continue to the provider (resume last session; Claude-specific)
+	Channels          string          // development channels (Claude-specific: expanded to --dangerously-load-development-channels)
 }
 
 // RunResult represents the outcome of a single agent run (provider-agnostic)

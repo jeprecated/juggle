@@ -120,6 +120,7 @@ type Config struct {
 	WorkDir           string                  // Working directory for agent spawning (empty = juggle's cwd)
 	Resume            bool                    // Resume from last completed iteration recorded in --log file
 	ContinueSession   bool                    // Pass --continue to the provider on the first iteration (resumes last session)
+	Channels          string                  // Development channels (Claude-specific: expanded to --dangerously-load-development-channels)
 	Dashboard         bool                    // Show TUI dashboard for watch workers (auto-enabled for glob watch)
 	OnTouch           bool                    // Re-process files on mtime change (touch) in addition to new files
 	Every             time.Duration           // Run on a fixed interval even without a watch file
@@ -437,18 +438,28 @@ func registerSharedFlags(cmd *cobra.Command) {
 var loopCmd = &cobra.Command{
 	Use:   "loop [prompt-content...]",
 	Short: "Run an agent in a loop",
-	Long:  `Run an AI agent in a loop. Runs immediately, keeps running. All positional args are prompt content (strings or @file references).`,
-	Example: `  # Run 5 iterations on a task
-  juggle loop "fix tests" -n 5
+	Long: `Run an AI agent in a repeating loop. Starts immediately and keeps running
+until stopped by -n, a signal (Ctrl+C), or a guard condition (--stop-when, --max-cost).
 
-  # With a prompt file and trust mode
-  juggle loop @task.md --trust -n 10
+Positional arguments are prompt content — plain strings or @file references.
+@files resolve from $JUGGLE_PROMPTS when set, or as literal paths.`,
+	Example: `  # Single task, 3 iterations
+  juggle loop "fix the failing tests" -n 3
 
-  # Long-running maintenance loop with named session
-  juggle loop "maintain code" --delay 2 --id myapp
+  # Compose prompts from @files and inline text
+  juggle loop @tdd @fix "broken email validation" -n 5
 
-  # Resume from last iteration
-  juggle loop @task.md --log run.jsonl --resume`,
+  # Maintenance loop: run every 5 minutes indefinitely
+  juggle loop "review open issues" --delay 5 --id maint
+
+  # Resume from last completed iteration
+  juggle loop @task.md --log run.jsonl --resume
+
+  # Run a shell command before each iteration
+  juggle loop "check for regressions" --cmd-before "git pull" -n 20
+
+  # Stop when a condition is met
+  juggle loop "keep working on the task" --stop-when "test -f DONE"`,
 	Args:              cobra.ArbitraryArgs,
 	ValidArgsFunction: completeArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -461,22 +472,33 @@ var loopCmd = &cobra.Command{
 var queueCmd = &cobra.Command{
 	Use:   "queue [prompt-content...]",
 	Short: "Wait for triggers, then run an agent",
-	Long: `Wait for work, then run an AI agent. Requires at least one trigger source
-(--watch, --every, --serve, or --id). All positional args are prompt content (strings or @file references).`,
-	Example: `  # Watch a directory for task files
-  juggle queue @rules.md --watch ./tasks/
+	Long: `Wait for triggers, then run an AI agent. Idles until a trigger fires, then
+processes the work. Requires at least one trigger: --watch, --every, --serve, or --id.
 
-  # Run on a fixed interval, starting immediately
+Triggers are composable — combine any of them in a single command.
+
+Positional arguments are prompt content — plain strings or @file references.
+@files resolve from $JUGGLE_PROMPTS when set, or as literal paths.`,
+	Example: `  # Watch a directory for new task files
+  juggle queue @tdd @review --watch ./tasks/
+
+  # Run on a fixed interval (also run immediately with --now)
   juggle queue "check health" --every 30s --now
 
-  # HTTP trigger endpoint with named session
+  # HTTP trigger endpoint
   juggle queue @rules.md --serve :8080 --id myapp
 
-  # Combine triggers: watch + interval + named session
+  # Combine triggers: watch + interval + manual trigger
   juggle queue @rules.md --watch ./tasks/ --every 5m --id myapp
 
-  # Parallel workers with dashboard
-  juggle queue @rules.md --watch ./tasks/ --workers 4 --dashboard`,
+  # Trigger from another terminal or project
+  juggle trigger myapp "review this PR"
+
+  # Parallel workers with TUI dashboard
+  juggle queue @rules.md --watch ./tasks/ --workers 4 --dashboard
+
+  # File mtime changes as trigger (not just new files)
+  juggle queue "rebuild" --watch ./src/ --on-touch`,
 	Args:              cobra.ArbitraryArgs,
 	ValidArgsFunction: completeArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -514,18 +536,33 @@ var rootCmd = &cobra.Command{
 	Use:     "juggle <command> [flags]",
 	Short:   "Minimal agent loop runner",
 	Version: "dev",
-	Long: `Run an AI agent in a loop or wait for triggers to run it.
+	Long: `Juggle runs AI agents in loops or queues.
 
-Use "juggle loop" to run immediately and keep running.
-Use "juggle queue" to wait for triggers (watch, interval, HTTP).`,
-	Example: `  # Run an agent in a loop
+  juggle loop   Run immediately, keep running.  Iteration loop with optional delay.
+  juggle queue  Wait for triggers, then run.    Event-driven; watch, interval, HTTP, or manual.
+
+Loop is for fixed-count runs, maintenance loops, and retry workflows.
+Queue is for event-driven processing — it idles until work arrives.`,
+	Example: `  # Run 3 iterations
   juggle loop "fix the failing tests" -n 3
+
+  # Maintenance loop every 5 minutes
+  juggle loop "review open issues" --delay 5 --id maint
+
+  # Compose prompts from @files and inline text
+  juggle loop @tdd @fix "broken email validation" -n 5
 
   # Watch a directory for task files
   juggle queue @rules.md --watch ./tasks/
 
-  # Run on a fixed interval
-  juggle queue "check for issues" --every 5m`,
+  # Run on a fixed interval, starting immediately
+  juggle queue "check for issues" --every 5m --now
+
+  # HTTP endpoint as trigger
+  juggle queue @rules.md --serve :8080 --id myapp
+
+  # Trigger from another project
+  juggle trigger myapp "check the build"`,
 	Args: func(cmd *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			return fmt.Errorf("unknown arguments %v\n\nDid you mean:\n  juggle loop %s\n  juggle queue %s --watch ./tasks/", args, args[0], args[0])
@@ -562,17 +599,14 @@ func splitPassthroughArgs(args []string, dashLen int) ([]string, []string) {
 	return normal, passthru
 }
 
-// mergePassthroughArgs combines -X/--extra args, --channels expansion, and --
-// passthrough args into a single slice for RunOptions.PassthroughArgs.
-func mergePassthroughArgs(extra []string, channels string, passthrough []string) []string {
-	if len(extra) == 0 && channels == "" && len(passthrough) == 0 {
+// mergePassthroughArgs combines -X/--extra args and -- passthrough args into a
+// single slice for RunOptions.PassthroughArgs.
+func mergePassthroughArgs(extra []string, passthrough []string) []string {
+	if len(extra) == 0 && len(passthrough) == 0 {
 		return nil
 	}
-	merged := make([]string, 0, len(extra)+len(passthrough)+2)
+	merged := make([]string, 0, len(extra)+len(passthrough))
 	merged = append(merged, extra...)
-	if channels != "" {
-		merged = append(merged, "--dangerously-load-development-channels", channels)
-	}
 	merged = append(merged, passthrough...)
 	return merged
 }
@@ -699,7 +733,7 @@ func run(cmd *cobra.Command, args []string) error {
 		MCPConfig:         flags.mcpConfig,
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
-		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
+		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, passthroughArgs),
 		AgentCmd:            flags.agentCmd,
 		Command:           flags.command,
 		SystemPrompt:        systemPrompt,
@@ -707,6 +741,7 @@ func run(cmd *cobra.Command, args []string) error {
 		WorkDir:           flags.workdir,
 		Resume:            flags.resume,
 		ContinueSession:   flags.continueSession,
+		Channels:          flags.channels,
 		ID:                flags.id,
 	}
 
@@ -901,12 +936,13 @@ func runQueueCmd(cmd *cobra.Command, args []string) error {
 		MCPConfig:         flags.mcpConfig,
 		OnFailure:         OnFailure(flags.onFailure),
 		Retries:           flags.retries,
-		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, flags.channels, passthroughArgs),
+		PassthroughArgs:   mergePassthroughArgs(flags.extraArgs, passthroughArgs),
 		AgentCmd:          flags.agentCmd,
 		Command:           flags.command,
 		SystemPrompt:      systemPrompt,
 		RetryPrompt:       retryPrompt,
 		WorkDir:           flags.workdir,
+		Channels:          flags.channels,
 		ID:                flags.id,
 	}
 

@@ -513,6 +513,54 @@ func TestClaudeHeadlessArgs_PassthroughArgs_Empty(t *testing.T) {
 	}
 }
 
+func TestClaudeHeadlessArgs_Channels(t *testing.T) {
+	opts := RunOptions{Channels: "server:claude-peers"}
+	args := claudeHeadlessArgs(opts)
+	found := false
+	for i, a := range args {
+		if a == "--dangerously-load-development-channels" && i+1 < len(args) && args[i+1] == "server:claude-peers" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected --dangerously-load-development-channels server:claude-peers in args, got: %v", args)
+	}
+}
+
+func TestClaudeHeadlessArgs_ChannelsEmpty(t *testing.T) {
+	withoutChannels := claudeHeadlessArgs(RunOptions{})
+	withEmptyChannels := claudeHeadlessArgs(RunOptions{Channels: ""})
+	if len(withoutChannels) != len(withEmptyChannels) {
+		t.Errorf("empty Channels should be a no-op: got %v vs %v", withEmptyChannels, withoutChannels)
+	}
+}
+
+func TestClaudeInteractiveSpec_Channels(t *testing.T) {
+	opts := RunOptions{Channels: "server:claude-peers"}
+	spec := claudeInteractiveSpec(opts)
+	found := false
+	for i, a := range spec.Args {
+		if a == "--dangerously-load-development-channels" && i+1 < len(spec.Args) && spec.Args[i+1] == "server:claude-peers" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected --dangerously-load-development-channels in interactive spec args, got: %v", spec.Args)
+	}
+}
+
+func TestCodexHeadlessArgs_NoChannelsLeak(t *testing.T) {
+	opts := RunOptions{Prompt: "task", Channels: "server:claude-peers"}
+	args := codexHeadlessArgs(opts)
+	for _, a := range args {
+		if a == "--dangerously-load-development-channels" {
+			t.Errorf("channels flag should NOT appear in codex args, got: %v", args)
+		}
+	}
+}
+
 func TestOpenCodeProvider_Type(t *testing.T) {
 	p := NewOpenCodeProvider()
 	if p.Type() != TypeOpenCode {

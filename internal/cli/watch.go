@@ -365,6 +365,8 @@ func RunWatch(cfg Config) error {
 				} else {
 					pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
 				}
+			} else if everyFirst {
+				everyFirst = false
 			} else {
 				if dash != nil {
 					dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
@@ -1029,6 +1031,8 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 				} else {
 					pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Next run in %v", cfg.Every), cfg.Every, cfg.Shutdown, wakeCh(&cfg))
 				}
+			} else if everyFirst {
+				everyFirst = false
 			} else {
 				if dash != nil {
 					dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
@@ -1172,6 +1176,7 @@ func buildRunOptions(cfg Config, prompt string) agent.RunOptions {
 		SystemPrompt:        cfg.SystemPrompt,
 		WorkingDir:        cfg.WorkDir,
 		CommandOverride:  cfg.Command,
+		Channels:          cfg.Channels,
 	}
 }
 

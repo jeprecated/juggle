@@ -131,6 +131,10 @@ func claudeHeadlessArgs(opts RunOptions) []string {
 
 	args = append(args, opts.PassthroughArgs...)
 
+	if opts.Channels != "" {
+		args = append(args, "--dangerously-load-development-channels", opts.Channels)
+	}
+
 	return args
 }
 
@@ -170,6 +174,10 @@ func claudeInteractiveSpec(opts RunOptions) commandSpec {
 
 	if opts.Continue {
 		args = append(args, "--continue")
+	}
+
+	if opts.Channels != "" {
+		args = append(args, "--dangerously-load-development-channels", opts.Channels)
 	}
 
 	return commandSpec{
