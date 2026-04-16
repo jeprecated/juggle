@@ -58,8 +58,34 @@ func pollWait(w io.Writer, msg string, delay time.Duration, shutdown <-chan stru
 	}
 }
 
+// formatCountdown formats a duration for countdown display.
+// Seconds are hidden when >= 1 minute remains; shown when < 1 minute.
+func formatCountdown(d time.Duration) string {
+	if d < 0 {
+		d = 0
+	}
+	totalSeconds := int(d.Seconds())
+
+	if totalSeconds < 60 {
+		return fmt.Sprintf("%ds", totalSeconds)
+	}
+
+	hours := totalSeconds / 3600
+	minutes := (totalSeconds % 3600) / 60
+
+	if hours > 0 {
+		if minutes > 0 {
+			return fmt.Sprintf("%dh%dm", hours, minutes)
+		}
+		return fmt.Sprintf("%dh", hours)
+	}
+	return fmt.Sprintf("%dm", minutes)
+}
+
 // pollWaitWithWake is like pollWait but also wakes on the optional wakeCh.
-func pollWaitWithWake(w io.Writer, msg string, delay time.Duration, shutdown <-chan struct{}, wake <-chan struct{}) bool {
+// When countdown is true, msg is treated as a prefix and a dynamic countdown
+// (based on remaining time) is appended.
+func pollWaitWithWake(w io.Writer, msg string, delay time.Duration, shutdown <-chan struct{}, wake <-chan struct{}, countdown bool) bool {
 	isTTY := false
 	if f, ok := w.(*os.File); ok {
 		if info, err := f.Stat(); err == nil {
@@ -77,7 +103,11 @@ func pollWaitWithWake(w io.Writer, msg string, delay time.Duration, shutdown <-c
 	}
 
 	if !isTTY {
-		fmt.Fprintf(w, "%s\n", msg)
+		displayMsg := msg
+		if countdown {
+			displayMsg = fmt.Sprintf("%s %s", msg, formatCountdown(delay))
+		}
+		fmt.Fprintf(w, "%s\n", displayMsg)
 		select {
 		case <-waitDone():
 			return false
@@ -88,13 +118,19 @@ func pollWaitWithWake(w io.Writer, msg string, delay time.Duration, shutdown <-c
 		}
 	}
 
+	start := time.Now()
 	tick := time.NewTicker(150 * time.Millisecond)
 	defer tick.Stop()
 	timeout := waitDone()
 	i := 0
 
 	for {
-		fmt.Fprintf(w, "\r%s%s %c%s\033[K", dimOn, msg, throbberFrames[i%len(throbberFrames)], dimOff)
+		displayMsg := msg
+		if countdown {
+			remaining := delay - time.Since(start)
+			displayMsg = fmt.Sprintf("%s %s", msg, formatCountdown(remaining))
+		}
+		fmt.Fprintf(w, "\r%s%s %c%s\033[K", dimOn, displayMsg, throbberFrames[i%len(throbberFrames)], dimOff)
 
 		select {
 		case <-tick.C:
@@ -199,7 +235,7 @@ func (f *LoopFormatter) IterationStatus(elapsed time.Duration, inputTokens, outp
 	}
 
 	if f.isTTY {
-		fmt.Fprintf(f.w, "%s%s%s\n", dimOn, status, dimOff)
+		fmt.Fprintf(f.w, "\n%s%s%s\n", dimOn, status, dimOff)
 	} else {
 		fmt.Fprintln(f.w, status)
 	}
