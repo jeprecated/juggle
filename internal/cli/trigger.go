@@ -63,17 +63,12 @@ func runTrigger(effectiveID, message string) error {
 	}
 	_ = info
 
-	if message != "" {
-		if err := WriteTrigger(effectiveID, message); err != nil {
-			return err
-		}
-	} else {
-		wp := wakeFilePath(effectiveID)
-		f, err := os.Create(wp)
-		if err != nil {
-			return fmt.Errorf("wake session: %w", err)
-		}
-		_ = f.Close()
+	userMessage := message
+	if userMessage == "" {
+		userMessage = "wake"
+	}
+	if err := WriteTrigger(effectiveID, userMessage); err != nil {
+		return err
 	}
 
 	if message != "" {

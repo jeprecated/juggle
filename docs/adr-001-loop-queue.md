@@ -101,7 +101,7 @@ A helper function `registerSharedFlags(cmd *cobra.Command)` registers `--id` plu
 | `workers` | Queue only | |
 | `dashboard` | Queue only | |
 | `delay` | Loop only | |
-| `iterations` | Shared | |
+| `iterations` | Loop only | |
 | `model`, `provider`, etc. | Shared | All agent/hook/output flags |
 
 Old keys (`every_immediate`, etc.) are not aliased or warned. No backwards compatibility.
