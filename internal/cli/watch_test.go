@@ -712,6 +712,7 @@ func TestRunWatchWorkers_WorkerIDInEnv(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "task.md"), []byte("task content"), 0644)
 
 	shutdown := make(chan struct{})
+	var closeOnce sync.Once
 	var mu sync.Mutex
 	var calls []agent.RunOptions
 
@@ -719,11 +720,7 @@ func TestRunWatchWorkers_WorkerIDInEnv(t *testing.T) {
 		mu.Lock()
 		calls = append(calls, opts)
 		mu.Unlock()
-		select {
-		case <-shutdown:
-		default:
-			close(shutdown)
-		}
+		closeOnce.Do(func() { close(shutdown) })
 		return &agent.RunResult{}, nil
 	}}
 
@@ -765,6 +762,7 @@ func TestRunWatchWorkers_NoDuplicateTaskSelection(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "task2.md"), []byte("t2"), 0644)
 
 	shutdown := make(chan struct{})
+	var closeOnce sync.Once
 	var mu sync.Mutex
 	active := make(map[string]int) // filename → count of concurrent runs
 	var duplicateDetected bool
@@ -795,11 +793,7 @@ func TestRunWatchWorkers_NoDuplicateTaskSelection(t *testing.T) {
 		mu.Unlock()
 
 		if n >= 2 {
-			select {
-			case <-shutdown:
-			default:
-				close(shutdown)
-			}
+			closeOnce.Do(func() { close(shutdown) })
 		}
 		return &agent.RunResult{}, nil
 	}}

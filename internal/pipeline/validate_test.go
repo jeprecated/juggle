@@ -19,16 +19,6 @@ func agentNode(name string) pipeline.Node {
 	}
 }
 
-// cmdNode returns a minimal valid cmd node with event=loop-end.
-func cmdNode(name string) pipeline.Node {
-	return pipeline.Node{
-		Name:  name,
-		Kind:  pipeline.NodeKindCmd,
-		Event: pipeline.EventLoopEnd,
-		Cmd:   &pipeline.CmdSpec{Command: "echo done"},
-	}
-}
-
 // minimalPipeline returns a valid single-node pipeline.
 func minimalPipeline() *pipeline.Pipeline {
 	return &pipeline.Pipeline{

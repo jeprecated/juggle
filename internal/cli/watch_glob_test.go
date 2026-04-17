@@ -445,6 +445,7 @@ func TestRunWatch_MultiWatch_PicksFromBothDirs(t *testing.T) {
 	os.WriteFile(task2, []byte("task from dir2"), 0644)
 
 	shutdown := make(chan struct{})
+	var closeOnce sync.Once
 	var mu sync.Mutex
 	processed := map[string]bool{}
 	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
@@ -459,11 +460,7 @@ func TestRunWatch_MultiWatch_PicksFromBothDirs(t *testing.T) {
 				total := len(processed)
 				mu.Unlock()
 				if total >= 2 {
-					select {
-					case <-shutdown:
-					default:
-						close(shutdown)
-					}
+					closeOnce.Do(func() { close(shutdown) })
 				}
 				break
 			}
@@ -501,6 +498,7 @@ func TestRunWatch_MultiWatch_WorkersAcrossMultipleDirs(t *testing.T) {
 	os.WriteFile(task2, []byte("b"), 0644)
 
 	shutdown := make(chan struct{})
+	var closeOnce sync.Once
 	var mu sync.Mutex
 	callCount := 0
 	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
@@ -515,11 +513,7 @@ func TestRunWatch_MultiWatch_WorkersAcrossMultipleDirs(t *testing.T) {
 		n := callCount
 		mu.Unlock()
 		if n >= 2 {
-			select {
-			case <-shutdown:
-			default:
-				close(shutdown)
-			}
+			closeOnce.Do(func() { close(shutdown) })
 		}
 		return &agent.RunResult{}, nil
 	}}
@@ -556,6 +550,7 @@ func TestRunWatch_MultiWatch_GlobAndLiteralMixed(t *testing.T) {
 	os.WriteFile(globTask, []byte("glob"), 0644)
 
 	shutdown := make(chan struct{})
+	var closeOnce sync.Once
 	var mu sync.Mutex
 	processed := map[string]bool{}
 	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
@@ -569,11 +564,7 @@ func TestRunWatch_MultiWatch_GlobAndLiteralMixed(t *testing.T) {
 				n := len(processed)
 				mu.Unlock()
 				if n >= 2 {
-					select {
-					case <-shutdown:
-					default:
-						close(shutdown)
-					}
+					closeOnce.Do(func() { close(shutdown) })
 				}
 				break
 			}
@@ -616,15 +607,12 @@ func TestRunWatch_GlobPattern_WorkersCapConcurrency(t *testing.T) {
 	}
 
 	shutdown := make(chan struct{})
+	var closeOnce sync.Once
 	var callCount atomic.Int32
 	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
 		n := callCount.Add(1)
 		if n >= 2 {
-			select {
-			case <-shutdown:
-			default:
-				close(shutdown)
-			}
+			closeOnce.Do(func() { close(shutdown) })
 		}
 		return &agent.RunResult{}, nil
 	}}

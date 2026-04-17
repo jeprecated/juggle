@@ -147,32 +147,6 @@ func (t *touchTracker) scanTouchDir(dir string) (string, error) {
 	return "", nil
 }
 
-// scanTouchDirAll returns all new or touched files in dir.
-func (t *touchTracker) scanTouchDirAll(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("reading watch directory: %w", err)
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	var files []string
-	for _, entry := range entries {
-		if entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		info, err := entry.Info()
-		if err != nil {
-			continue
-		}
-		prev, seen := t.mtimes[path]
-		if !seen || !info.ModTime().Equal(prev) {
-			t.mtimes[path] = info.ModTime()
-			files = append(files, path)
-		}
-	}
-	return files, nil
-}
 
 // claimTouchDir atomically claims the first new or touched file not already claimed.
 func (t *touchTracker) claimTouchDir(dir string, coord *workerCoordinator) (string, error) {
@@ -206,12 +180,6 @@ func (t *touchTracker) claimTouchDir(dir string, coord *workerCoordinator) (stri
 	return "", nil
 }
 
-// update records the current mtime for a file path.
-func (t *touchTracker) update(path string, mod time.Time) {
-	t.mu.Lock()
-	t.mtimes[path] = mod
-	t.mu.Unlock()
-}
 
 // prefixWriter wraps an io.Writer and prepends prefix to each complete line.
 // Partial lines (no trailing newline) are buffered until the newline arrives.
