@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
@@ -57,7 +58,11 @@ func runHook(cmd string, env hookEnv, w io.Writer) error {
 		}
 		c = exec.Command(path)
 	} else {
-		c = exec.Command("sh", "-c", cmd)
+		if runtime.GOOS == "windows" {
+			c = exec.Command("cmd", "/c", cmd)
+		} else {
+			c = exec.Command("sh", "-c", cmd)
+		}
 	}
 
 	c.Env = append(os.Environ(), env.envSlice()...)

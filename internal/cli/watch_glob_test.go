@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ohare93/juggle/internal/agent"
@@ -157,7 +158,7 @@ func TestExpandGlobDirs(t *testing.T) {
 			t.Fatalf("expected 2 dirs, got %d: %v", len(dirs), dirs)
 		}
 		for _, d := range dirs {
-			if !strings.HasSuffix(d, ".frontloop/ready") {
+			if !strings.HasSuffix(filepath.ToSlash(d), ".frontloop/ready") {
 				t.Errorf("unexpected dir %q", d)
 			}
 		}
@@ -208,7 +209,7 @@ func TestExpandGlobDirs_FastPath(t *testing.T) {
 			t.Fatalf("expected 2 dirs, got %d: %v", len(dirs), dirs)
 		}
 		for _, d := range dirs {
-			if !strings.HasSuffix(d, ".frontloop/ready") {
+			if !strings.HasSuffix(filepath.ToSlash(d), ".frontloop/ready") {
 				t.Errorf("unexpected dir %q", d)
 			}
 		}
@@ -615,10 +616,10 @@ func TestRunWatch_GlobPattern_WorkersCapConcurrency(t *testing.T) {
 	}
 
 	shutdown := make(chan struct{})
-	callCount := 0
+	var callCount atomic.Int32
 	runner := &funcRunner{run: func(opts agent.RunOptions) (*agent.RunResult, error) {
-		callCount++
-		if callCount >= 2 {
+		n := callCount.Add(1)
+		if n >= 2 {
 			select {
 			case <-shutdown:
 			default:
@@ -642,7 +643,7 @@ func TestRunWatch_GlobPattern_WorkersCapConcurrency(t *testing.T) {
 	if err != nil && !errors.Is(err, ErrInterrupted) {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if callCount < 1 {
+	if callCount.Load() < 1 {
 		t.Error("expected at least one task to run")
 	}
 }

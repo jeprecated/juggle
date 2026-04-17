@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -39,6 +40,9 @@ func TestRunHook_Empty(t *testing.T) {
 
 // TestRunHook_FileRef verifies @file references are resolved and executed.
 func TestRunHook_FileRef(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script tests not supported on Windows")
+	}
 	dir := t.TempDir()
 	script := filepath.Join(dir, "hook.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\necho ran\n"), 0755)
@@ -61,6 +65,9 @@ func TestRunHook_FileRefMissing(t *testing.T) {
 
 // TestRunHook_SetsEnvVars verifies environment variables are passed to hook.
 func TestRunHook_SetsEnvVars(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell env var tests not supported on Windows")
+	}
 	var stderr bytes.Buffer
 	// Command that prints the env var; output goes to stderr
 	err := runHook(`sh -c 'echo ITER=$JUGGLE_ITERATION' >&2`, hookEnv{iteration: 7, maxIterations: 10}, &stderr)
@@ -75,6 +82,9 @@ func TestRunHook_SetsEnvVars(t *testing.T) {
 
 // TestRunHook_AfterEnvVars verifies exit code and token env vars are set.
 func TestRunHook_AfterEnvVars(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell env var tests not supported on Windows")
+	}
 	var stderr bytes.Buffer
 	env := hookEnv{
 		iteration:     2,
@@ -227,6 +237,9 @@ func TestRunWatchTask_CmdAfterFailureLogsWarning(t *testing.T) {
 
 // TestRunHook_RunLevelEnvVars verifies run-level env vars are passed to hook.
 func TestRunHook_RunLevelEnvVars(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell env var tests not supported on Windows")
+	}
 	var stderr bytes.Buffer
 	env := hookEnv{
 		iteration:     1,
@@ -257,6 +270,9 @@ func TestRunHook_RunLevelEnvVars(t *testing.T) {
 
 // TestRunHook_EmptyLabelOmitted verifies JUGGLE_LABEL is not set when label is empty.
 func TestRunHook_EmptyLabelOmitted(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell env var tests not supported on Windows")
+	}
 	var stderr bytes.Buffer
 	env := hookEnv{
 		iteration:     1,

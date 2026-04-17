@@ -215,11 +215,14 @@ func (t *touchTracker) update(path string, mod time.Time) {
 
 // prefixWriter wraps an io.Writer and prepends prefix to each complete line.
 // Partial lines (no trailing newline) are buffered until the newline arrives.
+// When multiple prefixWriters share the same underlying writer, each should
+// receive the same writeMu so that concurrent writes are serialized.
 type prefixWriter struct {
-	mu     sync.Mutex
-	w      io.Writer
-	prefix string
-	buf    []byte
+	mu      sync.Mutex
+	writeMu *sync.Mutex // shared lock for serializing writes to the underlying writer
+	w       io.Writer
+	prefix  string
+	buf     []byte
 }
 
 func newPrefixWriter(w io.Writer, prefix string) *prefixWriter {
@@ -236,7 +239,13 @@ func (pw *prefixWriter) Write(p []byte) (int, error) {
 			break
 		}
 		line := pw.buf[:idx+1]
+		if pw.writeMu != nil {
+			pw.writeMu.Lock()
+		}
 		fmt.Fprintf(pw.w, "%s%s", pw.prefix, line)
+		if pw.writeMu != nil {
+			pw.writeMu.Unlock()
+		}
 		pw.buf = pw.buf[idx+1:]
 	}
 	return len(p), nil
@@ -928,6 +937,7 @@ func runWatchWorkers(cfg Config) error {
 	}
 
 	coord := newWorkerCoordinator()
+	var writeMu sync.Mutex // shared lock for prefixWriters writing to cfg.Stderr
 	var touchTrack *touchTracker
 	if cfg.OnTouch {
 		touchTrack = newTouchTracker()
@@ -948,7 +958,9 @@ func runWatchWorkers(cfg Config) error {
 					workerCfg.Stderr = logFile
 				}
 			} else {
-				workerCfg.Stderr = newPrefixWriter(cfg.Stderr, fmt.Sprintf("[worker-%d] ", workerID))
+					pw := newPrefixWriter(cfg.Stderr, fmt.Sprintf("[worker-%d] ", workerID))
+					pw.writeMu = &writeMu
+					workerCfg.Stderr = pw
 			}
 			workerCfg.Runner = &workerIDRunner{inner: cfg.Runner, workerID: workerID}
 			if err := runWorkerLoop(workerCfg, coord, touchTrack, pollDelay, dash, workerID); err != nil {

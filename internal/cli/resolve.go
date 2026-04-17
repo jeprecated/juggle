@@ -163,6 +163,9 @@ func resolveNestedBare(name, promptsDir string) ([]byte, error) {
 		return nil, nil
 	}
 	if len(matches) > 1 {
+		for i, m := range matches {
+			matches[i] = filepath.ToSlash(m)
+		}
 		return nil, fmt.Errorf("ambiguous name %q matches multiple files: %s", name, strings.Join(matches, ", "))
 	}
 

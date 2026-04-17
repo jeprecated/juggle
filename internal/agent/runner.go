@@ -3,6 +3,8 @@
 package agent
 
 import (
+	"sync"
+
 	"github.com/ohare93/juggle/internal/agent/provider"
 )
 
@@ -71,6 +73,8 @@ type MockRunner struct {
 	Calls []RunOptions
 	// NextIndex tracks which response to return next
 	NextIndex int
+	// mu protects Calls, NextIndex for concurrent access
+	mu sync.Mutex
 }
 
 // NewMockRunner creates a new MockRunner with the given responses
@@ -83,6 +87,9 @@ func NewMockRunner(responses ...*RunResult) *MockRunner {
 
 // Run records the call and returns the next queued response
 func (m *MockRunner) Run(opts RunOptions) (*RunResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.Calls = append(m.Calls, opts)
 
 	if m.NextIndex >= len(m.Responses) {
@@ -100,12 +107,16 @@ func (m *MockRunner) Run(opts RunOptions) (*RunResult, error) {
 
 // Reset clears call history and resets response index
 func (m *MockRunner) Reset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Calls = make([]RunOptions, 0)
 	m.NextIndex = 0
 }
 
 // SetResponses replaces the response queue
 func (m *MockRunner) SetResponses(responses ...*RunResult) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.Responses = responses
 	m.NextIndex = 0
 }

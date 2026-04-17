@@ -6,12 +6,22 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ohare93/juggle/internal/agent"
 	"github.com/ohare93/juggle/internal/pipeline"
 )
+
+// normalizeText strips carriage returns and trailing spaces before newlines,
+// normalizing Windows cmd.exe output to match Unix expectations.
+func normalizeText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, " \n", "\n")
+	return s
+}
 
 // --- test helpers ---
 
@@ -48,6 +58,54 @@ func execCmdNode(name string, event pipeline.Event, command string) pipeline.Nod
 	}
 }
 
+// touchCmd returns a cross-platform "create file" command string.
+func touchCmd(file string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("type nul > %s", file)
+	}
+	return fmt.Sprintf("touch %s", file)
+}
+
+// appendCmd returns a cross-platform "append line to file" command string.
+func appendCmd(text, file string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("echo %s >> %s", text, file)
+	}
+	return fmt.Sprintf(`printf '%s\n' >> %s`, text, file)
+}
+
+// writeFileCmd returns a cross-platform "write text to file" command string.
+func writeFileCmd(text, file string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("echo %s > %s", text, file)
+	}
+	return fmt.Sprintf(`echo %s > %s`, text, file)
+}
+
+// sleepCmd returns a cross-platform "sleep N seconds" command string.
+func sleepCmd(seconds string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("timeout /t %s /nobreak >nul", seconds)
+	}
+	return fmt.Sprintf("sleep %s", seconds)
+}
+
+// fileExistsThenCreateCmd returns a command that creates target only if check exists.
+func fileExistsThenCreateCmd(check, target string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("if exist %s %s", check, touchCmd(target))
+	}
+	return fmt.Sprintf("[ -f %s ] && %s", check, touchCmd(target))
+}
+
+// echoEnvCmd returns a command that writes the value of an env var to a file.
+func echoEnvCmd(envVar, file string) string {
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("echo %%%s%% > %s", envVar, file)
+	}
+	return fmt.Sprintf(`echo "$%s" > %s`, envVar, file)
+}
+
 // normalizedPipeline builds a pipeline with the given nodes and normalizes it.
 // All pipelines must have at least one loop-body agent node.
 func normalizedPipeline(t *testing.T, iterations int, nodes ...pipeline.Node) *pipeline.Pipeline {
@@ -61,7 +119,7 @@ func normalizedPipeline(t *testing.T, iterations int, nodes ...pipeline.Node) *p
 
 // appendCmdNode returns a cmd node that appends `label\n` to a file.
 func appendCmdNode(name string, event pipeline.Event, label, file string) pipeline.Node {
-	return execCmdNode(name, event, fmt.Sprintf(`printf '%s\n' >> %s`, label, file))
+	return execCmdNode(name, event, appendCmd(label, file))
 }
 
 // --- tests ---
@@ -108,7 +166,7 @@ func TestExecutor_EventOrdering_AllEventsFire(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read order file: %v", err)
 	}
-	got := string(data)
+	got := normalizeText(string(data))
 	want := "run-start\nloop-start\nloop-end\nrun-end\n"
 	if got != want {
 		t.Errorf("event order:\ngot:  %q\nwant: %q", got, want)
@@ -141,7 +199,7 @@ func TestExecutor_EventOrdering_LoopEventsRepeatPerIteration(t *testing.T) {
 	}
 
 	data, _ := os.ReadFile(orderFile)
-	got := string(data)
+	got := normalizeText(string(data))
 	want := "S\nE\nS\nE\n" // 2 iterations: loop-start then loop-end each time
 	if got != want {
 		t.Errorf("loop event repeat:\ngot:  %q\nwant: %q", got, want)
@@ -159,7 +217,7 @@ func TestExecutor_ConditionalSkip_WhenFalseSkipsNode(t *testing.T) {
 			Kind:  pipeline.NodeKindCmd,
 			Event: pipeline.EventRunStart,
 			When:  "false",
-			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+			Cmd:   &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 		},
 		minAgentNode("main"),
 	)
@@ -185,7 +243,7 @@ func TestExecutor_ConditionalRun_WhenTrueRunsNode(t *testing.T) {
 			Kind:  pipeline.NodeKindCmd,
 			Event: pipeline.EventRunStart,
 			When:  "true",
-			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+			Cmd:   &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 		},
 		minAgentNode("main"),
 	)
@@ -288,7 +346,7 @@ func TestExecutor_CmdNode_ExecutesShellCommand(t *testing.T) {
 
 	runner := agent.NewMockRunner(okResult())
 	p := normalizedPipeline(t, 1,
-		execCmdNode("write", pipeline.EventRunStart, fmt.Sprintf(`echo hello > %s`, outFile)),
+		execCmdNode("write", pipeline.EventRunStart, writeFileCmd("hello", outFile)),
 		minAgentNode("main"),
 	)
 
@@ -301,8 +359,8 @@ func TestExecutor_CmdNode_ExecutesShellCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read output file: %v", err)
 	}
-	if string(data) != "hello\n" {
-		t.Errorf("expected 'hello\\n', got %q", string(data))
+	if normalizeText(string(data)) != "hello\n" {
+		t.Errorf("expected 'hello\\n', got %q", normalizeText(string(data)))
 	}
 }
 
@@ -327,7 +385,7 @@ func TestExecutor_FailureEvent_FiresWhenNodeFails(t *testing.T) {
 				Kind:     pipeline.NodeKindCmd,
 				Event:    pipeline.EventFailure,
 				Parallel: true, // no implicit dep on main (different conceptual flow)
-				Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+				Cmd:      &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 			},
 		},
 	}
@@ -377,7 +435,7 @@ func TestExecutor_CmdNode_EnvVarsAvailable(t *testing.T) {
 	runner := agent.NewMockRunner(okResult())
 	p := normalizedPipeline(t, 1,
 		execCmdNode("check-env", pipeline.EventRunStart,
-			fmt.Sprintf(`echo "$JUGGLE_ITERATION" > %s`, outFile)),
+			echoEnvCmd("JUGGLE_ITERATION", outFile)),
 		minAgentNode("main"),
 	)
 
@@ -388,8 +446,8 @@ func TestExecutor_CmdNode_EnvVarsAvailable(t *testing.T) {
 
 	data, _ := os.ReadFile(outFile)
 	// run-start is iteration 0
-	if string(data) != "0\n" {
-		t.Errorf("expected JUGGLE_ITERATION=0 for run-start, got %q", string(data))
+	if normalizeText(string(data)) != "0\n" {
+		t.Errorf("expected JUGGLE_ITERATION=0 for run-start, got %q", normalizeText(string(data)))
 	}
 }
 
@@ -401,7 +459,7 @@ func TestExecutor_cmdNodeTimeout(t *testing.T) {
 			Kind:    pipeline.NodeKindCmd,
 			Event:   pipeline.EventRunStart,
 			Timeout: 100 * time.Millisecond,
-			Cmd:     &pipeline.CmdSpec{Command: "sleep 10"},
+			Cmd:     &pipeline.CmdSpec{Command: sleepCmd("10")},
 		},
 		minAgentNode("main"),
 	)
@@ -434,14 +492,14 @@ func TestExecutor_Parallel_BothNodesComplete(t *testing.T) {
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			Parallel: true,
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileA)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileA)},
 		},
 		pipeline.Node{
 			Name:     "side-b",
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			Parallel: true,
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileB)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileB)},
 		},
 	)
 
@@ -478,7 +536,7 @@ func TestExecutor_Parallel_DependentNodeRunsAfterDep(t *testing.T) {
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			Parallel: true,
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileA)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileA)},
 		},
 		pipeline.Node{
 			Name:     "node-c",
@@ -486,7 +544,7 @@ func TestExecutor_Parallel_DependentNodeRunsAfterDep(t *testing.T) {
 			Event:    pipeline.EventLoopBody,
 			Parallel: true,
 			After:    []string{"node-a"},
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("[ -f %s ] && touch %s", fileA, fileC)},
+			Cmd:      &pipeline.CmdSpec{Command: fileExistsThenCreateCmd(fileA, fileC)},
 		},
 	)
 
@@ -547,7 +605,7 @@ func TestExecutor_Parallel_ContinueFailureAllowsSiblings(t *testing.T) {
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			Parallel: true,
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", sideFile)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(sideFile)},
 		},
 	)
 
@@ -561,6 +619,9 @@ func TestExecutor_Parallel_ContinueFailureAllowsSiblings(t *testing.T) {
 }
 
 func TestExecutor_Parallel_MaxParallelSteps_Respected(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sub-second sleep not available on Windows")
+	}
 	// With MaxParallelSteps=1, two 50ms sleep nodes run sequentially: total ≥90ms.
 	runner := agent.NewMockRunner(okResult())
 	p := &pipeline.Pipeline{
@@ -594,27 +655,47 @@ func TestExecutor_Parallel_MaxParallelSteps_Respected(t *testing.T) {
 func TestExecutor_Parallel_ShutdownCancelsRunning(t *testing.T) {
 	shutdown := make(chan struct{})
 
-	runner := agent.NewMockRunner(okResult())
+	// blockingRunner blocks until context is cancelled, simulating a slow agent.
+	blockingRunner := &blockingMockRunner{}
+
 	p := normalizedPipeline(t, 1,
 		pipeline.Node{
 			Name:      "slow",
-			Kind:      pipeline.NodeKindCmd,
+			Kind:      pipeline.NodeKindAgent,
 			Event:     pipeline.EventLoopBody,
 			Parallel:  true,
 			OnFailure: pipeline.FailurePolicyStop,
-			Cmd:       &pipeline.CmdSpec{Command: "sleep 5"},
+			Agent:     &pipeline.AgentSpec{Prompt: "block", Provider: "slow"},
 		},
 		pipeline.Node{
 			Name:     "main",
 			Kind:     pipeline.NodeKindAgent,
 			Event:    pipeline.EventLoopBody,
 			Parallel: true,
-			Agent:    &pipeline.AgentSpec{Prompt: "body"},
+			Agent:    &pipeline.AgentSpec{Prompt: "body", Provider: "main"},
 		},
 	)
 
-	cfg := baseExecCfg(runner)
-	cfg.Shutdown = shutdown
+	// main runner returns instantly; slow runner blocks.
+	runners := map[string]agent.Runner{
+		"slow": blockingRunner,
+		"main": agent.NewMockRunner(okResult()),
+	}
+	factory := func(name string) (agent.Runner, error) {
+		if r, ok := runners[name]; ok {
+			return r, nil
+		}
+		return nil, fmt.Errorf("unknown node %q", name)
+	}
+
+	cfg := pipeline.ExecutorConfig{
+		RunnerFactory: factory,
+		Stdout:        io.Discard,
+		Stderr:        io.Discard,
+		ForceCtx:      context.Background(),
+		RetryBackoffs: []time.Duration{0, 0, 0},
+		Shutdown:      shutdown,
+	}
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -632,6 +713,14 @@ func TestExecutor_Parallel_ShutdownCancelsRunning(t *testing.T) {
 	if elapsed > 2*time.Second {
 		t.Errorf("expected cancellation within 2 seconds, took %v", elapsed)
 	}
+}
+
+// blockingMockRunner blocks in Run until context cancellation.
+type blockingMockRunner struct{}
+
+func (b *blockingMockRunner) Run(opts agent.RunOptions) (*agent.RunResult, error) {
+	<-opts.Context.Done()
+	return &agent.RunResult{ExitCode: 1}, nil
 }
 
 // --- per-node provider dispatch tests ---
@@ -788,7 +877,7 @@ func TestExecutor_StructuredWhen_IterationSkip(t *testing.T) {
 			Kind:  pipeline.NodeKindCmd,
 			Event: pipeline.EventLoopBody,
 			When:  "iteration==2",
-			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+			Cmd:   &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 		},
 		minAgentNode("main"),
 	)
@@ -821,7 +910,7 @@ func TestExecutor_StructuredWhen_SuccessCheck(t *testing.T) {
 			Kind:  pipeline.NodeKindCmd,
 			Event: pipeline.EventRunStart,
 			When:  "success==true",
-			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+			Cmd:   &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 		},
 		minAgentNode("main"),
 	)
@@ -854,7 +943,7 @@ func TestExecutor_StructuredWhen_SuccessCheckAfterFailure(t *testing.T) {
 			Kind:  pipeline.NodeKindCmd,
 			Event: pipeline.EventRunStart,
 			When:  "success==false",
-			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+			Cmd:   &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 		},
 		minAgentNode("main"),
 	)
@@ -899,7 +988,7 @@ func TestExecutor_StructuredWhen_ShellFallback(t *testing.T) {
 			Kind:  pipeline.NodeKindCmd,
 			Event: pipeline.EventRunStart,
 			When:  fmt.Sprintf("test ! -f %s", touchFile), // shell expression
-			Cmd:   &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", touchFile)},
+			Cmd:   &pipeline.CmdSpec{Command: touchCmd(touchFile)},
 		},
 		minAgentNode("main"),
 	)
@@ -977,35 +1066,35 @@ func TestExecutor_MultiRootDAG_AllNodesExecute(t *testing.T) {
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			After:    []string{"A"},
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileA)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileA)},
 		},
 		pipeline.Node{
 			Name:     "create-b",
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			After:    []string{"B"},
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileB)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileB)},
 		},
 		pipeline.Node{
 			Name:     "C",
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			After:    []string{"create-a"},
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileC)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileC)},
 		},
 		pipeline.Node{
 			Name:     "D",
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			After:    []string{"create-b"},
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileD)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileD)},
 		},
 		pipeline.Node{
 			Name:     "E",
 			Kind:     pipeline.NodeKindCmd,
 			Event:    pipeline.EventLoopBody,
 			After:    []string{"C", "D"},
-			Cmd:      &pipeline.CmdSpec{Command: fmt.Sprintf("touch %s", fileE)},
+			Cmd:      &pipeline.CmdSpec{Command: touchCmd(fileE)},
 		},
 	)
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -453,7 +454,7 @@ func (e *Executor) runCmdNode(ctx context.Context, n Node, iteration int) error 
 
 	shell := spec.Shell
 	if shell == "" {
-		shell = "sh"
+		shell = defaultShell()
 	}
 
 	workDir := n.WorkDir
@@ -467,7 +468,12 @@ func (e *Executor) runCmdNode(ctx context.Context, n Node, iteration int) error 
 		defer cancelFn()
 	}
 
-	cmd := exec.CommandContext(ctx, shell, "-c", spec.Command)
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, shell, "/c", spec.Command)
+	} else {
+		cmd = exec.CommandContext(ctx, shell, "-c", spec.Command)
+	}
 	cmd.Dir = workDir
 	cmd.Stdout = e.cfg.Stdout
 	cmd.Stderr = e.cfg.Stderr
@@ -475,6 +481,14 @@ func (e *Executor) runCmdNode(ctx context.Context, n Node, iteration int) error 
 	cmd.Env = append(cmd.Env, spec.Env...)
 
 	return cmd.Run()
+}
+
+// defaultShell returns the system shell: "cmd" on Windows, "sh" elsewhere.
+func defaultShell() string {
+	if runtime.GOOS == "windows" {
+		return "cmd"
+	}
+	return "sh"
 }
 
 // evalWhen evaluates a when condition. Structured expressions matching the
@@ -490,7 +504,13 @@ func (e *Executor) evalWhen(ctx context.Context, when string, wctx WhenContext) 
 	}
 
 	// Shell fallback.
-	cmd := exec.CommandContext(ctx, "sh", "-c", when)
+	shell := defaultShell()
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(ctx, shell, "/c", when)
+	} else {
+		cmd = exec.CommandContext(ctx, shell, "-c", when)
+	}
 	cmd.Dir = e.cfg.WorkDir
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
