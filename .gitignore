@@ -44,6 +44,16 @@ Thumbs.db
 coverage.txt
 *.prof
 
+# Agent loop generated files
+JOURNAL.md
+FEATURES.md
+docs/
+
+# Agent tooling state
+.frontloop/
+.serena/
+.codex
+
 # Temporary files
 tmp/
 temp/

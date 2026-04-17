@@ -602,7 +602,7 @@ func TestExecutor_Parallel_ShutdownCancelsRunning(t *testing.T) {
 			Event:     pipeline.EventLoopBody,
 			Parallel:  true,
 			OnFailure: pipeline.FailurePolicyStop,
-			Cmd:       &pipeline.CmdSpec{Command: "sleep 30"},
+			Cmd:       &pipeline.CmdSpec{Command: "sleep 5"},
 		},
 		pipeline.Node{
 			Name:     "main",
