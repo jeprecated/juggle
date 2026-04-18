@@ -936,3 +936,234 @@ func TestRun_MultiWatch_RelativePathsResolvedAgainstWorkDir(t *testing.T) {
 		t.Error("expected at least one task to run (relative multi-watch paths not resolved)")
 	}
 }
+
+func TestRunWatch_NowFlag_RunsOnEmptyDir(t *testing.T) {
+	dir := t.TempDir() // empty — no task files
+
+	shutdown := make(chan struct{})
+	var closeOnce sync.Once
+	var calls int
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		calls++
+		closeOnce.Do(func() { close(shutdown) })
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:    []string{dir},
+		Now:      true,
+		Runner:   runner,
+		Shutdown: shutdown,
+		Stderr:   &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if calls == 0 {
+		t.Error("expected runner to be called with --now on empty dir")
+	}
+}
+
+func TestRunWatch_NoNowFlag_WaitsOnEmptyDir(t *testing.T) {
+	dir := t.TempDir() // empty — no task files
+
+	shutdown := make(chan struct{})
+	mock := agent.NewMockRunner(&agent.RunResult{Output: "ok"})
+
+	cfg := Config{
+		Watch:    []string{dir},
+		Now:      false,
+		Runner:   mock,
+		Shutdown: shutdown,
+		Stderr:   &bytes.Buffer{},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunWatch(cfg)
+	}()
+
+	// Give RunWatch time to enter the wait loop (or call the runner if buggy).
+	time.Sleep(150 * time.Millisecond)
+
+	// If the runner was already called, the everyFirst logic is wrong.
+	if len(mock.Calls) > 0 {
+		close(shutdown)
+		<-done
+		t.Fatalf("expected runner NOT to be called without --now on empty dir, got %d calls", len(mock.Calls))
+	}
+
+	close(shutdown)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunWatch did not respond to shutdown within 5s")
+	}
+
+	if len(mock.Calls) != 0 {
+		t.Errorf("expected 0 runner calls without --now on empty dir, got %d", len(mock.Calls))
+	}
+}
+
+func TestRunWatch_EveryWithNow_RunsImmediately(t *testing.T) {
+	dir := t.TempDir()
+
+	shutdown := make(chan struct{})
+	var closeOnce sync.Once
+	var calls int
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		calls++
+		closeOnce.Do(func() { close(shutdown) })
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:    []string{dir},
+		Every:    1 * time.Hour,
+		Now:      true,
+		Runner:   runner,
+		Shutdown: shutdown,
+		Stderr:   &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if calls == 0 {
+		t.Error("expected runner to be called with --every + --now on empty dir")
+	}
+}
+
+func TestRunWatch_EveryShutdownDuringWait(t *testing.T) {
+	dir := t.TempDir()
+
+	shutdown := make(chan struct{})
+	var calls int
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		calls++
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:    []string{dir},
+		Every:    1 * time.Hour,
+		Now:      true,
+		Runner:   runner,
+		Shutdown: shutdown,
+		Stderr:   &bytes.Buffer{},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunWatch(cfg)
+	}()
+
+	// Wait for first iteration to run and enter the --every wait.
+	time.Sleep(200 * time.Millisecond)
+
+	// Close shutdown during the pollWaitWithWake.
+	close(shutdown)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted on shutdown during --every wait, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunWatch did not respond to shutdown during --every wait within 5s")
+	}
+
+	// Should have run exactly once (the initial --now run), not started a second iteration.
+	if calls != 1 {
+		t.Errorf("expected exactly 1 runner call (initial --now), got %d", calls)
+	}
+}
+
+func TestRunTouchWatch_NowFlag_RunsImmediately(t *testing.T) {
+	dir := t.TempDir()
+	triggerFile := filepath.Join(dir, "trigger")
+	os.WriteFile(triggerFile, []byte("tick"), 0644)
+
+	shutdown := make(chan struct{})
+	var closeOnce sync.Once
+	var calls int
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		calls++
+		closeOnce.Do(func() { close(shutdown) })
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:    []string{triggerFile},
+		OnTouch:  true,
+		Every:    1 * time.Hour,
+		Now:      true,
+		Runner:   runner,
+		Shutdown: shutdown,
+		Content:  "do work",
+		Stderr:   &bytes.Buffer{},
+	}
+
+	err := RunWatch(cfg)
+	if !errors.Is(err, ErrInterrupted) {
+		t.Fatalf("expected ErrInterrupted, got %v", err)
+	}
+	if calls == 0 {
+		t.Error("expected runner to be called with --now on touch watch")
+	}
+}
+
+func TestRunTouchWatch_EveryShutdownDuringWait(t *testing.T) {
+	dir := t.TempDir()
+	triggerFile := filepath.Join(dir, "trigger")
+	os.WriteFile(triggerFile, []byte("tick"), 0644)
+
+	shutdown := make(chan struct{})
+	var calls int
+	runner := &funcRunner{func(opts agent.RunOptions) (*agent.RunResult, error) {
+		calls++
+		return &agent.RunResult{}, nil
+	}}
+
+	cfg := Config{
+		Watch:    []string{triggerFile},
+		OnTouch:  true,
+		Every:    1 * time.Hour,
+		Now:      true,
+		Runner:   runner,
+		Shutdown: shutdown,
+		Content:  "do work",
+		Stderr:   &bytes.Buffer{},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- RunWatch(cfg)
+	}()
+
+	// Wait for first iteration to run and enter the --every wait.
+	time.Sleep(200 * time.Millisecond)
+
+	close(shutdown)
+
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrInterrupted) {
+			t.Fatalf("expected ErrInterrupted on shutdown during touch --every wait, got %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("runTouchWatch did not respond to shutdown during --every wait within 5s")
+	}
+
+	// Should have run exactly once (the initial --now run), not started a second iteration.
+	if calls != 1 {
+		t.Errorf("expected exactly 1 runner call (initial --now), got %d", calls)
+	}
+}

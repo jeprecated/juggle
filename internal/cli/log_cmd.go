@@ -52,6 +52,15 @@ func init() {
 	rootCmd.AddCommand(logCmd)
 }
 
+// logOutputFormat resolves the output format for the log command.
+// --json is treated as --format json when --format is not explicitly set.
+func logOutputFormat() OutputFormat {
+	if logFlags.json && flags.format == "" {
+		return FormatJSON
+	}
+	return outputFormat()
+}
+
 func runLogCmd(cmd *cobra.Command, args []string) error {
 	logPath := DefaultLogPath()
 	if logPath == "" {
@@ -62,7 +71,14 @@ func runLogCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("reading log: %w", err)
 	}
+
+	ofmt := logOutputFormat()
+
 	if len(runs) == 0 {
+		if ofmt == FormatToon {
+			fmt.Fprintln(os.Stdout, "runs[0]: none found")
+			return nil
+		}
 		fmt.Fprintln(os.Stderr, "No sessions found.")
 		return nil
 	}
@@ -71,31 +87,86 @@ func runLogCmd(cmd *cobra.Command, args []string) error {
 
 	switch {
 	case logFlags.latest && len(ids) > 0:
-		return showRun(runs[ids[0]], logFlags.json, os.Stdout)
+		return showRun(runs[ids[0]], ofmt, os.Stdout)
 	case len(args) == 1:
 		run, ok := runs[args[0]]
 		if !ok {
+			if ofmt == FormatToon {
+				ToonError(os.Stdout, "not_found", fmt.Sprintf("run %q not found", args[0]))
+			}
 			return fmt.Errorf("run %q not found", args[0])
 		}
-		return showRun(run, logFlags.json, os.Stdout)
+		return showRun(run, ofmt, os.Stdout)
 	default:
-		return listRuns(runs, ids, logFlags.json, os.Stdout)
+		return listRuns(runs, ids, ofmt, os.Stdout)
 	}
 }
 
-func listRuns(runs map[string]*logRun, ids []string, jsonOut bool, w io.Writer) error {
-	color := isColorEnabled(w)
-	for _, id := range ids {
-		run := runs[id]
-		if jsonOut {
+func listRuns(runs map[string]*logRun, ids []string, ofmt OutputFormat, w io.Writer) error {
+	switch ofmt {
+	case FormatToon:
+		fields := []string{"id", "date", "label", "iter", "status"}
+		rows := make([][]string, 0, len(ids))
+		for _, id := range ids {
+			run := runs[id]
+			rows = append(rows, runToListRow(id, run))
+		}
+		ToonList(w, "runs", fields, rows, 0)
+		ToonHelp(w, []string{
+			"juggle log <id> for details",
+		})
+		return nil
+	case FormatJSON:
+		for _, id := range ids {
+			run := runs[id]
 			for _, evt := range run.Events {
 				fmt.Fprintln(w, string(evt))
 			}
-			continue
 		}
-		printRunListLine(w, id, run, color)
+		return nil
+	default:
+		color := isColorEnabled(w)
+		for _, id := range ids {
+			printRunListLine(w, id, runs[id], color)
+		}
+		return nil
 	}
-	return nil
+}
+
+// runToListRow extracts a TOON row for a run summary.
+func runToListRow(id string, run *logRun) []string {
+	shortID := id
+	if len(id) > 8 {
+		shortID = id[:8]
+	}
+
+	var ts time.Time
+	var label string
+	if run.Start != nil {
+		ts = run.Start.Timestamp
+		label = run.Start.Label
+	}
+
+	dateStr := "???"
+	if !ts.IsZero() {
+		dateStr = ts.Format("2006-01-02 15:04")
+	}
+
+	if label == "" {
+		label = truncate(run.startPrompt(), 40)
+	}
+
+	var iters int
+	var statusStr string
+	if run.End != nil {
+		iters = run.End.Iterations
+		statusStr = "done"
+	} else {
+		iters = run.countIterEnds()
+		statusStr = "running"
+	}
+
+	return []string{shortID, dateStr, label, fmt.Sprintf("%d", iters), statusStr}
 }
 
 func printRunListLine(w io.Writer, id string, run *logRun, color bool) {
@@ -163,15 +234,90 @@ func printRunListLine(w io.Writer, id string, run *logRun, color bool) {
 	fmt.Fprintln(w, strings.Join(parts, "  "))
 }
 
-func showRun(run *logRun, jsonOut bool, w io.Writer) error {
-	color := isColorEnabled(w)
-
-	if jsonOut {
+func showRun(run *logRun, ofmt OutputFormat, w io.Writer) error {
+	switch ofmt {
+	case FormatToon:
+		return showRunToon(run, w)
+	case FormatJSON:
 		for _, evt := range run.Events {
 			fmt.Fprintln(w, string(evt))
 		}
 		return nil
+	default:
+		return showRunText(run, w)
 	}
+}
+
+func showRunToon(run *logRun, w io.Writer) error {
+	// Run header
+	runFields := []string{"run_id", "provider", "model", "status"}
+	runValues := make([]string, 4)
+	if run.Start != nil {
+		runValues[0] = shortRunID(run.Start.RunID)
+		runValues[1] = run.Start.Provider
+		runValues[2] = run.Start.Model
+		if run.Start.Label != "" {
+			runFields = append(runFields, "label")
+			runValues = append(runValues, run.Start.Label)
+		}
+		if run.Start.Prompt != "" {
+			runFields = append(runFields, "prompt")
+			runValues = append(runValues, truncate(run.Start.Prompt, 200))
+		}
+	}
+	status := "running"
+	if run.End != nil {
+		status = "done"
+	}
+	runValues[3] = status
+	ToonObject(w, runFields, runValues)
+
+	// Iterations
+	iterFields := []string{"iter", "duration", "tokens_in", "tokens_out", "exit"}
+	var iterRows [][]string
+	for _, raw := range run.Events {
+		var typed rawLogEntry
+		if json.Unmarshal(raw, &typed) != nil {
+			continue
+		}
+		if typed.Type == "iter_end" || typed.Type == "" {
+			var e iterationLogEntry
+			if json.Unmarshal(raw, &e) != nil {
+				continue
+			}
+			iterRows = append(iterRows, []string{
+				fmt.Sprintf("%d", e.Iteration),
+				formatDurationMs(e.DurationMs),
+				fmt.Sprintf("%d", e.InputTokens),
+				fmt.Sprintf("%d", e.OutputTokens),
+				fmt.Sprintf("%d", e.ExitCode),
+			})
+		}
+	}
+	if len(iterRows) > 0 {
+		ToonList(w, "iterations", iterFields, iterRows, 0)
+	}
+
+	// Summary
+	if run.End != nil {
+		e := run.End
+		ToonObject(w,
+			[]string{"iterations", "tokens_in", "tokens_out", "cost", "duration"},
+			[]string{
+				fmt.Sprintf("%d", e.Iterations),
+				fmt.Sprintf("%d", e.InputTokens),
+				fmt.Sprintf("%d", e.OutputTokens),
+				fmt.Sprintf("$%.4f", e.EstimatedCost),
+				formatDurationMs(e.DurationMs),
+			},
+		)
+	}
+
+	return nil
+}
+
+func showRunText(run *logRun, w io.Writer) error {
+	color := isColorEnabled(w)
 
 	if run.Start != nil {
 		s := run.Start

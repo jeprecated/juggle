@@ -249,6 +249,7 @@ var flags struct {
 	channels        string
 	extraArgs       []string
 	command         string
+	format          string
 }
 
 // queueFlags holds flags specific to the queue subcommand.
@@ -265,6 +266,7 @@ var queueFlags struct {
 func init() {
 	// pf holds shared flags inherited by all subcommands.
 	pf := rootCmd.PersistentFlags()
+	pf.StringVar(&flags.format, "format", "", "output format: text, toon, json")
 	pf.StringVar(&flags.model, "model", "sonnet", "model name")
 	pf.StringVar(&flags.provider, "provider", "claude", "provider name")
 	pf.BoolVar(&flags.trust, "trust", false, "bypass permission checks")
@@ -333,7 +335,7 @@ func init() {
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
 		setFlagGroup(pf, name, "Lifecycle Hooks")
 	}
-	for _, name := range []string{"dry-run", "verbose", "log", "no-log", "label", "id"} {
+	for _, name := range []string{"dry-run", "verbose", "log", "no-log", "label", "id", "format"} {
 		setFlagGroup(pf, name, "Output")
 	}
 
@@ -571,6 +573,9 @@ Queue is for event-driven processing — it idles until work arrives.`,
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if outputFormat() == FormatToon {
+			return showLiveStatus(os.Stdout)
+		}
 		return cmd.Help()
 	},
 	SilenceUsage:  true,
@@ -580,6 +585,62 @@ Queue is for event-driven processing — it idles until work arrives.`,
 // Execute runs the root command.
 func Execute() error {
 	return rootCmd.Execute()
+}
+
+// showLiveStatus outputs a compact AXI dashboard for the root command in TOON mode.
+// It shows active sessions and recent runs so an agent can orient immediately.
+func showLiveStatus(w io.Writer) error {
+	// Bin path
+	exe, err := os.Executable()
+	if err == nil {
+		home, _ := os.UserHomeDir()
+		if home != "" && strings.HasPrefix(exe, home) {
+			exe = "~" + exe[len(home):]
+		}
+		fmt.Fprintf(w, "bin: %s\n", exe)
+	}
+	fmt.Fprintln(w, "description: Minimal agent loop runner")
+
+	// Active sessions
+	sessions := gatherSessions()
+	if len(sessions) == 0 {
+		fmt.Fprintln(w, "sessions[0]: none running")
+	} else {
+		fields := []string{"id", "type", "workdir"}
+		rows := make([][]string, len(sessions))
+		for i, s := range sessions {
+			rows[i] = []string{s.ID, s.Type, s.WorkDir}
+		}
+		ToonList(w, "sessions", fields, rows, 0)
+	}
+
+	// Recent runs (last 5)
+	logPath := DefaultLogPath()
+	if logPath != "" {
+		runs, _ := parseLogFile(logPath)
+		if len(runs) == 0 {
+			fmt.Fprintln(w, "runs[0]: none recorded")
+		} else {
+			ids := sortedRunIDs(runs)
+			limit := len(ids)
+			if limit > 5 {
+				limit = 5
+			}
+			fields := []string{"id", "date", "label", "iter", "status"}
+			rows := make([][]string, 0, limit)
+			for _, id := range ids[:limit] {
+				rows = append(rows, runToListRow(id, runs[id]))
+			}
+			ToonList(w, "runs", fields, rows, len(ids))
+		}
+	}
+
+	ToonHelp(w, []string{
+		"juggle trigger <id> \"message\" to send a trigger",
+		"juggle log for full run history",
+	})
+
+	return nil
 }
 
 // splitPassthroughArgs splits positional args at the '--' separator.

@@ -50,6 +50,19 @@ func parseExcludeFlags(cmd *cobra.Command) map[string]bool {
 	return excluded
 }
 
+// parseAnnotatedExclusions returns only the flag names from the command's
+// exclude-flags annotation (not local flags). Used to suppress inherited
+// flags globally for commands that don't need them.
+func parseAnnotatedExclusions(cmd *cobra.Command) map[string]bool {
+	excluded := make(map[string]bool)
+	if v, ok := cmd.Annotations[excludeFlagsKey]; ok && v != "" {
+		for _, name := range strings.Split(v, ",") {
+			excluded[strings.TrimSpace(name)] = true
+		}
+	}
+	return excluded
+}
+
 // groupedHelp is a cobra help function that renders flags sorted into named groups.
 // Color is enabled when the command's output writer is a TTY and NO_COLOR is unset.
 func groupedHelp(cmd *cobra.Command, args []string) {
@@ -71,6 +84,11 @@ func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 		fmt.Fprintf(w, "%s\n%s\n\n", colorizeHeading("Examples:", color), colorizeExamples(cmd.Example, color))
 	}
 
+	// Compute exclusions: annotated exclusions suppress inherited flags globally;
+	// full exclusions (including local flags) prevent duplicates from InheritedFlags.
+	annotated := parseAnnotatedExclusions(cmd)
+	excluded := parseExcludeFlags(cmd)
+
 	// Collect flags into groups.
 	// Visit both cmd.Flags() (local + inherited persistent) and cmd.PersistentFlags()
 	// (the command's own persistent flags, not visible in Flags() for root commands).
@@ -79,7 +97,7 @@ func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 	seen := make(map[string]bool)
 
 	addFlag := func(f *pflag.Flag) {
-		if seen[f.Name] || f.Hidden {
+		if seen[f.Name] || f.Hidden || annotated[f.Name] {
 			return
 		}
 		seen[f.Name] = true
@@ -97,7 +115,6 @@ func groupedHelpWithColor(cmd *cobra.Command, _ []string, color bool) {
 	cmd.Flags().VisitAll(addFlag)
 	cmd.PersistentFlags().VisitAll(addFlag)
 
-	excluded := parseExcludeFlags(cmd)
 	cmd.InheritedFlags().VisitAll(func(f *pflag.Flag) {
 		if excluded[f.Name] {
 			return
