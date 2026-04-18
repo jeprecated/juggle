@@ -33,6 +33,12 @@ go test -v ./internal/cli/... -run TestRunLoop
 go mod tidy
 go fmt ./...
 go vet ./...
+
+# Lint (must pass before pushing)
+devbox run -- golangci-lint run
+
+# Race detector (must pass before pushing)
+devbox run -- go test -race ./...
 ```
 
 ## Architecture
