@@ -269,8 +269,10 @@ func runGlobWatchSerial(cfg Config) error {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
-			pollWait(cfg.Stderr, fmt.Sprintf("Watching %s", globPattern), pollDelay, cfg.Shutdown)
-			continue
+			manual := pollWaitManual(cfg.Stderr, fmt.Sprintf("Watching %s", globPattern), pollDelay, cfg.Shutdown, wakeCh(&cfg), cfg.ManualTrigger)
+			if !manual {
+				continue
+			}
 		}
 
 		taskCfg := cfg
@@ -300,7 +302,12 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if taskPath != "" {
+			err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		} else {
+			filename = "manual"
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
+		}
 		if dash != nil {
 			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 		}
@@ -444,8 +451,10 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 			}
-			pollWait(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown)
-			continue
+			manual := pollWaitManual(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown, wakeCh(&cfg), cfg.ManualTrigger)
+			if !manual {
+				continue
+			}
 		}
 
 		taskCfg := cfg
@@ -474,7 +483,12 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if taskPath != "" {
+			err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		} else {
+			filename = "manual"
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
+		}
 		if err != nil {
 			coord.release(taskPath)
 			if dash != nil {
@@ -617,8 +631,10 @@ func runMultiWatchSerial(cfg Config) error {
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
-			pollWait(cfg.Stderr, "Watching directories", pollDelay, cfg.Shutdown)
-			continue
+			manual := pollWaitManual(cfg.Stderr, "Watching directories", pollDelay, cfg.Shutdown, wakeCh(&cfg), cfg.ManualTrigger)
+			if !manual {
+				continue
+			}
 		}
 
 		taskCfg := cfg
@@ -648,7 +664,12 @@ func runMultiWatchSerial(cfg Config) error {
 		}
 		fmt.Fprintf(cfg.Stderr, "Processing task: %s\n", filename)
 
-		err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		if taskPath != "" {
+			err = runWatchTask(taskCfg, taskPath, i, max, taskState, &stats)
+		} else {
+			filename = "manual"
+			err = runTriggerTask(taskCfg, i, max, taskState, &stats)
+		}
 		if err != nil {
 			coord.release(taskPath)
 			if dash != nil {

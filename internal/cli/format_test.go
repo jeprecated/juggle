@@ -279,3 +279,52 @@ func TestPollWait(t *testing.T) {
 		}
 	})
 }
+
+func TestPollWaitManual(t *testing.T) {
+	t.Run("non-TTY returns false on timeout", func(t *testing.T) {
+		var buf bytes.Buffer
+		shutdown := make(chan struct{})
+		wake := make(chan struct{})
+		manual := make(chan struct{})
+		got := pollWaitManual(&buf, "Waiting", 50*time.Millisecond, shutdown, wake, manual)
+		if got {
+			t.Error("expected false (timeout), got true")
+		}
+	})
+
+	t.Run("non-TTY returns false on shutdown", func(t *testing.T) {
+		var buf bytes.Buffer
+		shutdown := make(chan struct{})
+		close(shutdown)
+		wake := make(chan struct{})
+		manual := make(chan struct{})
+		got := pollWaitManual(&buf, "Waiting", 10*time.Second, shutdown, wake, manual)
+		if got {
+			t.Error("expected false (shutdown), got true")
+		}
+	})
+
+	t.Run("non-TTY returns true on manual trigger", func(t *testing.T) {
+		var buf bytes.Buffer
+		shutdown := make(chan struct{})
+		wake := make(chan struct{})
+		manual := make(chan struct{}, 1)
+		manual <- struct{}{}
+		got := pollWaitManual(&buf, "Waiting", 10*time.Second, shutdown, wake, manual)
+		if !got {
+			t.Error("expected true (manual trigger), got false")
+		}
+	})
+
+	t.Run("non-TTY returns false on wake", func(t *testing.T) {
+		var buf bytes.Buffer
+		shutdown := make(chan struct{})
+		wake := make(chan struct{}, 1)
+		manual := make(chan struct{})
+		wake <- struct{}{}
+		got := pollWaitManual(&buf, "Waiting", 10*time.Second, shutdown, wake, manual)
+		if got {
+			t.Error("expected false (wake), got true")
+		}
+	})
+}

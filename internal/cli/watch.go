@@ -348,8 +348,10 @@ func RunWatch(cfg Config) error {
 				if dash != nil {
 					dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 				}
-				pollWaitWithWake(cfg.Stderr, fmt.Sprintf("Watching %s", watchDir), pollDelay, cfg.Shutdown, wakeCh(&cfg), false)
-				continue
+				manual := pollWaitManual(cfg.Stderr, fmt.Sprintf("Watching %s", watchDir), pollDelay, cfg.Shutdown, wakeCh(&cfg), cfg.ManualTrigger)
+				if !manual {
+					continue
+				}
 			}
 		}
 
@@ -360,8 +362,10 @@ func RunWatch(cfg Config) error {
 			taskCfg.Content = taskCfg.Content + "\n\n" + FormatTrigger(triggerMsg)
 		} else if taskPath != "" {
 			filename = filepath.Base(taskPath)
-		} else {
+		} else if cfg.Every > 0 {
 			filename = "every"
+		} else {
+			filename = "manual"
 		}
 		if dash != nil {
 			logFile := dash.logFiles[0]
@@ -1017,8 +1021,10 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 				if dash != nil {
 					dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 				}
-				pollWaitWithWake(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown, wakeCh(&cfg), false)
-				continue
+				manual := pollWaitManual(cfg.Stderr, "Waiting for tasks", pollDelay, cfg.Shutdown, wakeCh(&cfg), cfg.ManualTrigger)
+				if !manual {
+					continue
+				}
 			}
 		}
 
@@ -1029,8 +1035,10 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 			taskCfg.Content = taskCfg.Content + "\n\n" + FormatTrigger(triggerMsg)
 		} else if taskPath != "" {
 			filename = filepath.Base(taskPath)
-		} else {
+		} else if cfg.Every > 0 {
 			filename = "every"
+		} else {
+			filename = "manual"
 		}
 		if dash != nil {
 			dash.dash.Update(workerID, WorkerState{
@@ -1218,8 +1226,10 @@ func runTouchWatch(cfg Config) error {
 			if cfg.Every > 0 {
 				pollWaitWithWake(cfg.Stderr, "Next run in", cfg.Every, cfg.Shutdown, wakeCh(&cfg), true)
 			} else {
-				pollWait(cfg.Stderr, fmt.Sprintf("Watching %s", triggerFile), pollDelay, cfg.Shutdown)
-				continue
+				manual := pollWaitManual(cfg.Stderr, fmt.Sprintf("Watching %s", triggerFile), pollDelay, cfg.Shutdown, wakeCh(&cfg), cfg.ManualTrigger)
+				if !manual {
+					continue
+				}
 			}
 		}
 

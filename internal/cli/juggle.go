@@ -131,6 +131,7 @@ type Config struct {
 	ID                string                  // User-given session name (--id flag)
 	EffectiveID       string                  // Computed: <basedir>-<id>, set during registration
 	WakeChecker       *WakeChecker            // Background wake poller (nil when --id not set)
+	ManualTrigger     chan struct{}            // Signaled when user presses Enter during queue wait
 
 	// Shutdown is closed when the first signal arrives (graceful shutdown).
 	// A nil channel means no shutdown signaling (normal operation).
@@ -801,7 +802,7 @@ func run(cmd *cobra.Command, args []string) error {
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		_ = StartKeypressListener(tty, trigger, color, stderr)
+		_ = StartKeypressListener(tty, trigger, color, stderr, nil)
 		defer ttyCleanup()
 	}
 
@@ -1016,10 +1017,18 @@ func runQueueCmd(cmd *cobra.Command, args []string) error {
 		}()
 	}
 
+	cfg.ManualTrigger = make(chan struct{}, 1)
+
 	if tty, ttyCleanup, err := openTTYKeypress(); err == nil {
 		color := isColorEnabled(stderr)
 		trigger := func() { shutdownOnce.Do(func() { close(shutdown) }) }
-		_ = StartKeypressListener(tty, trigger, color, stderr)
+		onEnter := func() {
+			select {
+			case cfg.ManualTrigger <- struct{}{}:
+			default:
+			}
+		}
+		_ = StartKeypressListener(tty, trigger, color, stderr, onEnter)
 		defer ttyCleanup()
 	}
 

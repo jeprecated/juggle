@@ -20,12 +20,13 @@ func writeStopRequestedMessage(stderr io.Writer, color bool) {
 }
 
 // StartKeypressListener starts a goroutine that reads from r one byte at a time.
-// When 'q' or 'Q' is read, trigger is called and a stop message is written to stderr.
-// If color is true, the message is printed in red.
+// When 'q' or 'Q' is read, onStop is called and a stop message is written to stderr.
+// When Enter ('\n' or '\r') is read, onEnter is called (if non-nil).
+// If color is true, the stop message is printed in red.
 // Returns a wait function that blocks until the goroutine exits; callers
 // may discard it if they close r directly (e.g. via ttyCleanup).
 // The goroutine exits when r returns an error (e.g. EOF or file close).
-func StartKeypressListener(r io.Reader, trigger func(), color bool, stderr io.Writer) func() {
+func StartKeypressListener(r io.Reader, onStop func(), color bool, stderr io.Writer, onEnter func()) func() {
 	goroutineDone := make(chan struct{})
 
 	go func() {
@@ -36,10 +37,15 @@ func StartKeypressListener(r io.Reader, trigger func(), color bool, stderr io.Wr
 			if err != nil {
 				return
 			}
-			if n > 0 && (buf[0] == 'q' || buf[0] == 'Q') {
-				writeStopRequestedMessage(stderr, color)
-				trigger()
-				return
+			if n > 0 {
+				if buf[0] == 'q' || buf[0] == 'Q' {
+					writeStopRequestedMessage(stderr, color)
+					onStop()
+					return
+				}
+				if onEnter != nil && (buf[0] == '\n' || buf[0] == '\r') {
+					onEnter()
+				}
 			}
 		}
 	}()

@@ -148,6 +148,68 @@ func pollWaitWithWake(w io.Writer, msg string, delay time.Duration, shutdown <-c
 	}
 }
 
+// pollWaitManual is like pollWaitWithWake but also accepts a manual channel.
+// Returns true when woken by the manual channel (Enter key), false otherwise
+// (timeout, shutdown, or normal wake). The caller uses the return value to
+// decide whether to start a run immediately with CLI prompts only.
+func pollWaitManual(w io.Writer, msg string, delay time.Duration, shutdown <-chan struct{}, wake, manual <-chan struct{}) bool {
+	isTTY := false
+	if f, ok := w.(*os.File); ok {
+		if info, err := f.Stat(); err == nil {
+			isTTY = info.Mode()&os.ModeCharDevice != 0
+		}
+	}
+
+	waitDone := func() <-chan struct{} {
+		ch := make(chan struct{})
+		go func() {
+			time.Sleep(delay)
+			close(ch)
+		}()
+		return ch
+	}
+
+	if !isTTY {
+		fmt.Fprintf(w, "%s\n", msg)
+		select {
+		case <-waitDone():
+			return false
+		case <-shutdown:
+			return false
+		case <-wake:
+			return false
+		case <-manual:
+			return true
+		}
+	}
+
+	tick := time.NewTicker(150 * time.Millisecond)
+	defer tick.Stop()
+	timeout := waitDone()
+	i := 0
+
+	for {
+		fmt.Fprintf(w, "\r%s%s %c%s\033[K", dimOn, msg, throbberFrames[i%len(throbberFrames)], dimOff)
+
+		select {
+		case <-tick.C:
+			i++
+		case <-timeout:
+			fmt.Fprint(w, "\r\033[K")
+			return false
+		case <-shutdown:
+			fmt.Fprint(w, "\r\033[K")
+			return false
+		case <-wake:
+			fmt.Fprint(w, "\r\033[K")
+			return false
+		case <-manual:
+			fmt.Fprint(w, "\r\033[K")
+			return true
+		}
+	}
+}
+
 // LoopFormatter prints iteration headers and status lines to stderr.
 // When the writer is a TTY, output uses dim gray ANSI styling.
 type LoopFormatter struct {

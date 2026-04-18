@@ -16,7 +16,7 @@ func TestStartKeypressListener_QCallsTrigger(t *testing.T) {
 	triggered := make(chan struct{})
 	var stderr bytes.Buffer
 
-	cleanup := StartKeypressListener(r, func() { close(triggered) }, false, &stderr)
+	cleanup := StartKeypressListener(r, func() { close(triggered) }, false, &stderr, nil)
 	defer cleanup()
 
 	io.WriteString(w, "q") //nolint:errcheck
@@ -35,7 +35,7 @@ func TestStartKeypressListener_UpperQCallsTrigger(t *testing.T) {
 	triggered := make(chan struct{})
 	var stderr bytes.Buffer
 
-	cleanup := StartKeypressListener(r, func() { close(triggered) }, false, &stderr)
+	cleanup := StartKeypressListener(r, func() { close(triggered) }, false, &stderr, nil)
 	defer cleanup()
 
 	io.WriteString(w, "Q") //nolint:errcheck
@@ -53,7 +53,7 @@ func TestStartKeypressListener_OtherKeyNoTrigger(t *testing.T) {
 	var triggered atomic.Bool
 	var stderr bytes.Buffer
 
-	cleanup := StartKeypressListener(r, func() { triggered.Store(true) }, false, &stderr)
+	cleanup := StartKeypressListener(r, func() { triggered.Store(true) }, false, &stderr, nil)
 
 	io.WriteString(w, "x") //nolint:errcheck
 	w.Close()
@@ -71,7 +71,7 @@ func TestStartKeypressListener_PrintsMessageOnQ(t *testing.T) {
 	var stderr bytes.Buffer
 	done := make(chan struct{})
 
-	cleanup := StartKeypressListener(r, func() { close(done) }, false, &stderr)
+	cleanup := StartKeypressListener(r, func() { close(done) }, false, &stderr, nil)
 	defer cleanup()
 
 	io.WriteString(w, "q") //nolint:errcheck
@@ -89,7 +89,7 @@ func TestStartKeypressListener_PrintsRedWhenColorEnabled(t *testing.T) {
 	var stderr bytes.Buffer
 	done := make(chan struct{})
 
-	cleanup := StartKeypressListener(r, func() { close(done) }, true, &stderr)
+	cleanup := StartKeypressListener(r, func() { close(done) }, true, &stderr, nil)
 	defer cleanup()
 
 	io.WriteString(w, "q") //nolint:errcheck
@@ -111,7 +111,7 @@ func TestStartKeypressListener_NoColorWhenDisabled(t *testing.T) {
 	var stderr bytes.Buffer
 	done := make(chan struct{})
 
-	cleanup := StartKeypressListener(r, func() { close(done) }, false, &stderr)
+	cleanup := StartKeypressListener(r, func() { close(done) }, false, &stderr, nil)
 	defer cleanup()
 
 	io.WriteString(w, "q") //nolint:errcheck
@@ -127,7 +127,7 @@ func TestStartKeypressListener_CleanupOnEOF(t *testing.T) {
 	r, w := io.Pipe()
 	var stderr bytes.Buffer
 
-	cleanup := StartKeypressListener(r, func() {}, false, &stderr)
+	cleanup := StartKeypressListener(r, func() {}, false, &stderr, nil)
 
 	w.Close() // EOF causes goroutine to exit
 	cleanup() // should not hang
@@ -135,4 +135,59 @@ func TestStartKeypressListener_CleanupOnEOF(t *testing.T) {
 
 func TestWriteStopRequestedMessage_NilWriterFallsBack(t *testing.T) {
 	writeStopRequestedMessage(nil, false)
+}
+
+func TestStartKeypressListener_EnterCallsOnEnter(t *testing.T) {
+	r, w := io.Pipe()
+
+	triggered := make(chan struct{})
+	var stderr bytes.Buffer
+
+	cleanup := StartKeypressListener(r, func() {}, false, &stderr, func() { close(triggered) })
+
+	io.WriteString(w, "\n") //nolint:errcheck
+
+	select {
+	case <-triggered:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for onEnter on newline")
+	}
+	w.Close()
+	cleanup()
+}
+
+func TestStartKeypressListener_CarriageReturnCallsOnEnter(t *testing.T) {
+	r, w := io.Pipe()
+
+	triggered := make(chan struct{})
+	var stderr bytes.Buffer
+
+	cleanup := StartKeypressListener(r, func() {}, false, &stderr, func() { close(triggered) })
+
+	io.WriteString(w, "\r") //nolint:errcheck
+
+	select {
+	case <-triggered:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for onEnter on carriage return")
+	}
+	w.Close()
+	cleanup()
+}
+
+func TestStartKeypressListener_NilOnEnterIgnored(t *testing.T) {
+	r, w := io.Pipe()
+
+	var triggered atomic.Bool
+	var stderr bytes.Buffer
+
+	cleanup := StartKeypressListener(r, func() { triggered.Store(true) }, false, &stderr, nil)
+
+	io.WriteString(w, "\n") //nolint:errcheck
+	w.Close()
+	cleanup()
+
+	if triggered.Load() {
+		t.Error("expected onStop NOT to be called on Enter")
+	}
 }
