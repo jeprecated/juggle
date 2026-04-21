@@ -135,6 +135,37 @@ func TestStreamJSONOutput_Verbose(t *testing.T) {
 	})
 }
 
+func TestStreamJSONOutput_ResultEventCapture(t *testing.T) {
+	t.Run("result text captured in buffer", func(t *testing.T) {
+		input := `{"type":"result","result":"API Error: Request rejected (429) · Rate limit reached for requests"}
+`
+		var buf, out strings.Builder
+		acc := NewStreamAccumulator()
+		streamJSONOutput(strings.NewReader(input), &buf, &out, acc, false, false)
+
+		// Buffer should contain the result text (for rate limit detection)
+		if !strings.Contains(buf.String(), "429") {
+			t.Errorf("buffer should contain rate limit text, got %q", buf.String())
+		}
+		// Output should display the result text to the user
+		if !strings.Contains(out.String(), "429") {
+			t.Errorf("output should display rate limit text, got %q", out.String())
+		}
+	})
+
+	t.Run("empty result not captured", func(t *testing.T) {
+		input := `{"type":"result"}
+`
+		var buf, out strings.Builder
+		acc := NewStreamAccumulator()
+		streamJSONOutput(strings.NewReader(input), &buf, &out, acc, false, false)
+
+		if buf.Len() != 0 {
+			t.Errorf("buffer should be empty for result with no text, got %q", buf.String())
+		}
+	})
+}
+
 func TestFormatToolInput(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -83,6 +83,13 @@ func streamJSONOutput(reader io.Reader, buf *strings.Builder, writer io.Writer, 
 				}
 			}
 
+		case "result":
+			if event.Result != "" {
+				fmt.Fprintln(writer, event.Result)
+				buf.WriteString(event.Result)
+				buf.WriteString("\n")
+			}
+
 		case "system":
 			// Show tool events (deduplicated)
 			if event.ToolName != "" && (event.Subtype == "tool_use" || strings.HasPrefix(event.Subtype, "tool_")) {

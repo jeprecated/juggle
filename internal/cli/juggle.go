@@ -319,7 +319,7 @@ func init() {
 	_ = rf.MarkHidden("fuzz")
 	_ = pf.MarkHidden("interactive")
 	_ = pf.MarkHidden("show-thinking")
-	_ = pf.MarkHidden("provider")
+	// provider is visible — it's a primary flag for choosing the agent backend
 
 	// Assign visible flags to help groups.
 	for _, name := range []string{"iterations", "delay", "resume"} {
@@ -328,7 +328,7 @@ func init() {
 	for _, name := range []string{"timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt"} {
 		setFlagGroup(pf, name, "Loop Control")
 	}
-	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
+	for _, name := range []string{"provider", "model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
 		setFlagGroup(pf, name, "Agent Configuration")
 	}
 	setFlagGroup(rf, "continue", "Agent Configuration")
@@ -420,12 +420,12 @@ func registerSharedFlags(cmd *cobra.Command) {
 
 	_ = f.MarkHidden("interactive")
 	_ = f.MarkHidden("show-thinking")
-	_ = f.MarkHidden("provider")
+	// provider is visible — it's a primary flag for choosing the agent backend
 
 	for _, name := range []string{"timeout", "max-wait", "max-failures", "stop-when", "max-cost", "on-failure", "retries", "retry-prompt"} {
 		setFlagGroup(f, name, "Loop Control")
 	}
-	for _, name := range []string{"model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
+	for _, name := range []string{"provider", "model", "trust", "plan", "system-prompt", "allowed-tools", "disallowed-tools", "max-turns", "mcp-config", "agent-cmd", "command", "workdir", "channels", "extra"} {
 		setFlagGroup(f, name, "Agent Configuration")
 	}
 	for _, name := range []string{"cmd-before", "cmd-after", "agent-pre", "agent-before", "agent-after", "agent-post", "hook", "hooks-file"} {
@@ -462,7 +462,10 @@ Positional arguments are prompt content — plain strings or @file references.
   juggle loop "check for regressions" --cmd-before "git pull" -n 20
 
   # Stop when a condition is met
-  juggle loop "keep working on the task" --stop-when "test -f DONE"`,
+  juggle loop "keep working on the task" --stop-when "test -f DONE"
+
+  # Use a different provider
+  juggle loop "refactor the parser" --provider codex -n 3`,
 	Args:              cobra.ArbitraryArgs,
 	ValidArgsFunction: completeArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {

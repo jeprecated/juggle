@@ -189,6 +189,8 @@ func (c *CustomProvider) runHeadless(opts RunOptions) (*RunResult, error) {
 		result.Error = fmt.Errorf("custom agent exited with error: %w", err)
 	}
 
+	parseRateLimit(result)
+
 	return result, nil
 }
 

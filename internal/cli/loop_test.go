@@ -88,7 +88,7 @@ func TestLoopCmdHasSharedFlags(t *testing.T) {
 
 func TestLoopCmdHiddenFlags(t *testing.T) {
 	cmd := findLoopCmd(t)
-	hiddenFlags := []string{"fuzz", "interactive", "show-thinking", "provider"}
+	hiddenFlags := []string{"fuzz", "interactive", "show-thinking"}
 	for _, name := range hiddenFlags {
 		f := cmd.Flags().Lookup(name)
 		if f == nil {

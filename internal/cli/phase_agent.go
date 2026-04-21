@@ -96,3 +96,22 @@ func runPhaseAgent(cfg Config, prompt string, env phaseEnv, w io.Writer) error {
 	}
 	return nil
 }
+
+// runQueueAgentPost fires the agent-post phase once when the queue drains
+// (had tasks, now idle). Resets ranTask to false.
+func runQueueAgentPost(cfg Config, ranTask *bool, iteration, maxIter int) error {
+	if !*ranTask || cfg.AgentPost == "" {
+		return nil
+	}
+	*ranTask = false
+	formatter := NewLoopFormatter(cfg.Stderr)
+	formatter.PhaseAgentHeader("post")
+	if cfg.Verbose {
+		fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
+	}
+	env := phaseEnv{phase: "post", iteration: iteration, maxIter: maxIter, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
+	if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
+		return fmt.Errorf("agent-post failed: %w", err)
+	}
+	return nil
+}

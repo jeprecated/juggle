@@ -238,6 +238,7 @@ func runGlobWatchSerial(cfg Config) error {
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	ranTask := false
 
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown before starting each iteration
@@ -266,6 +267,10 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 
 		if taskPath == "" {
+			// Queue drained — fire agent-post if we processed tasks
+			if err := runQueueAgentPost(cfg, &ranTask, i, max); err != nil {
+				return err
+			}
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
@@ -321,12 +326,14 @@ func runGlobWatchSerial(cfg Config) error {
 				return nil
 			}
 			if errors.Is(err, errFileGone) {
-				// File completed by agent, continue to next iteration
+				ranTask = true
 				continue
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
+			ranTask = true
 			continue
 		}
+		ranTask = true
 
 		// Wait between iterations (skip after last), interruptible by shutdown
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
@@ -343,17 +350,9 @@ func runGlobWatchSerial(cfg Config) error {
 		}
 	}
 
-	// Run agent-post once after the iteration loop
-	if cfg.AgentPost != "" {
-		formatter := NewLoopFormatter(cfg.Stderr)
-		formatter.PhaseAgentHeader("post")
-		if cfg.Verbose {
-			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
-		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
-		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
-			return fmt.Errorf("agent-post failed: %w", err)
-		}
+	// Final agent-post if tasks were processed before loop ended
+	if err := runQueueAgentPost(cfg, &ranTask, 0, max); err != nil {
+		return err
 	}
 
 	writeSummary(cfg, stats)
@@ -431,6 +430,7 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	ranTask := false
 
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown before starting each iteration
@@ -448,6 +448,10 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 
 		if taskPath == "" {
+			// Queue drained — fire agent-post if we processed tasks
+			if err := runQueueAgentPost(cfg, &ranTask, i, max); err != nil {
+				return err
+			}
 			if dash != nil {
 				dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
 			}
@@ -503,12 +507,14 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 				return nil
 			}
 			if errors.Is(err, errFileGone) {
-				// File completed by agent, continue to next iteration
+				ranTask = true
 				continue
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
+			ranTask = true
 			continue
 		}
+		ranTask = true
 		coord.release(taskPath)
 		if dash != nil {
 			dash.dash.Update(workerID, WorkerState{Status: WorkerIdle, LogFile: logFile})
@@ -529,17 +535,9 @@ func runGlobWorkerLoop(cfg Config, getDirs func() []string, coord *workerCoordin
 		}
 	}
 
-	// Run agent-post once after the iteration loop
-	if cfg.AgentPost != "" {
-		formatter := NewLoopFormatter(cfg.Stderr)
-		formatter.PhaseAgentHeader("post")
-		if cfg.Verbose {
-			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
-		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
-		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
-			return fmt.Errorf("agent-post failed: %w", err)
-		}
+	// Final agent-post if tasks were processed before loop ended
+	if err := runQueueAgentPost(cfg, &ranTask, 0, max); err != nil {
+		return err
 	}
 
 	writeSummary(cfg, stats)
@@ -611,6 +609,7 @@ func runMultiWatchSerial(cfg Config) error {
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	ranTask := false
 
 	for i := 1; max == 0 || i <= max; i++ {
 		// Check shutdown before starting each iteration
@@ -628,6 +627,10 @@ func runMultiWatchSerial(cfg Config) error {
 		}
 
 		if taskPath == "" {
+			// Queue drained — fire agent-post if we processed tasks
+			if err := runQueueAgentPost(cfg, &ranTask, i, max); err != nil {
+				return err
+			}
 			if dash != nil {
 				dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
 			}
@@ -684,12 +687,14 @@ func runMultiWatchSerial(cfg Config) error {
 				return nil
 			}
 			if errors.Is(err, errFileGone) {
-				// File completed by agent, continue to next iteration
+				ranTask = true
 				continue
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
+			ranTask = true
 			continue
 		}
+		ranTask = true
 		coord.release(taskPath)
 		if dash != nil {
 			dash.dash.Update(0, WorkerState{Status: WorkerIdle, LogFile: dash.logFiles[0]})
@@ -710,17 +715,9 @@ func runMultiWatchSerial(cfg Config) error {
 		}
 	}
 
-	// Run agent-post once after the iteration loop
-	if cfg.AgentPost != "" {
-		formatter := NewLoopFormatter(cfg.Stderr)
-		formatter.PhaseAgentHeader("post")
-		if cfg.Verbose {
-			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
-		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
-		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
-			return fmt.Errorf("agent-post failed: %w", err)
-		}
+	// Final agent-post if tasks were processed before loop ended
+	if err := runQueueAgentPost(cfg, &ranTask, 0, max); err != nil {
+		return err
 	}
 
 	writeSummary(cfg, stats)

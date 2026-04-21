@@ -297,6 +297,7 @@ func RunWatch(cfg Config) error {
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	ranTask := false
 
 	var touchTrack *touchTracker
 	if cfg.OnTouch {
@@ -336,6 +337,10 @@ func RunWatch(cfg Config) error {
 		}
 
 		if taskPath == "" && triggerMsg == "" {
+			// Queue drained — fire agent-post if we processed tasks
+			if err := runQueueAgentPost(cfg, &ranTask, i, max); err != nil {
+				return err
+			}
 			if cfg.Every > 0 {
 				if everyFirst {
 					everyFirst = false
@@ -410,12 +415,14 @@ func RunWatch(cfg Config) error {
 				return nil
 			}
 			if errors.Is(err, errFileGone) {
-				// File completed by agent, continue to next iteration
+				ranTask = true
 				continue
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
+			ranTask = true
 			continue
 		}
+		ranTask = true
 
 		// Wait between iterations (skip after last), interruptible by shutdown or wake
 		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
@@ -434,17 +441,9 @@ func RunWatch(cfg Config) error {
 		}
 	}
 
-	// Run agent-post once after the iteration loop
-	if cfg.AgentPost != "" {
-		formatter := NewLoopFormatter(cfg.Stderr)
-		formatter.PhaseAgentHeader("post")
-		if cfg.Verbose {
-			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
-		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
-		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
-			return fmt.Errorf("agent-post failed: %w", err)
-		}
+	// Final agent-post if tasks were processed before loop ended
+	if err := runQueueAgentPost(cfg, &ranTask, 0, max); err != nil {
+		return err
 	}
 
 	writeSummary(cfg, stats)
@@ -977,6 +976,7 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	ranTask := false
 	everyFirst := cfg.Now
 
 	for i := 1; max == 0 || i <= max; i++ {
@@ -1011,6 +1011,10 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 		}
 
 		if taskPath == "" && triggerMsg == "" {
+			// Queue drained — fire agent-post if we processed tasks
+			if err := runQueueAgentPost(cfg, &ranTask, i, max); err != nil {
+				return err
+			}
 			if cfg.Every > 0 {
 				if everyFirst {
 					everyFirst = false
@@ -1089,12 +1093,14 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 				return nil
 			}
 			if errors.Is(err, errFileGone) {
-				// File completed by agent, continue to next iteration
+				ranTask = true
 				continue
 			}
 			fmt.Fprintf(cfg.Stderr, "Error processing %s: %v\n", filename, err)
+			ranTask = true
 			continue
 		}
+		ranTask = true
 		if taskPath != "" {
 			coord.release(taskPath)
 		}
@@ -1119,17 +1125,9 @@ func runWorkerLoop(cfg Config, coord *workerCoordinator, touchTrack *touchTracke
 		}
 	}
 
-	// Run agent-post once after the iteration loop
-	if cfg.AgentPost != "" {
-		formatter := NewLoopFormatter(cfg.Stderr)
-		formatter.PhaseAgentHeader("post")
-		if cfg.Verbose {
-			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
-		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
-		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
-			return fmt.Errorf("agent-post failed: %w", err)
-		}
+	// Final agent-post if tasks were processed before loop ended
+	if err := runQueueAgentPost(cfg, &ranTask, 0, max); err != nil {
+		return err
 	}
 
 	writeSummary(cfg, stats)
@@ -1185,8 +1183,8 @@ func runTouchWatch(cfg Config) error {
 	}
 
 	pollDelay := time.Duration(cfg.Delay) * time.Minute
-	if pollDelay < 30*time.Second {
-		pollDelay = 30 * time.Second
+	if pollDelay < time.Second {
+		pollDelay = time.Second
 	}
 
 	lastMod := info.ModTime()
@@ -1208,6 +1206,7 @@ func runTouchWatch(cfg Config) error {
 
 	max := cfg.Iterations
 	taskState := newRunTaskState()
+	ranTask := false
 
 	for i := 1; max == 0 || i <= max; i++ {
 		select {
@@ -1227,6 +1226,10 @@ func runTouchWatch(cfg Config) error {
 		}
 
 		if info.ModTime().Equal(lastMod) && !dirty {
+			// Queue drained — fire agent-post if we processed tasks
+			if err := runQueueAgentPost(cfg, &ranTask, i, max); err != nil {
+				return err
+			}
 			if cfg.Every > 0 {
 			if pollWaitWithWake(cfg.Stderr, "Next run in", cfg.Every, cfg.Shutdown, wakeCh(&cfg), true) {
 				continue
@@ -1393,6 +1396,7 @@ func runTouchWatch(cfg Config) error {
 		}
 
 		taskState.resetBackoff()
+		ranTask = true
 		stats.iterations++
 		stats.inputTokens += result.InputTokens
 		stats.outputTokens += result.OutputTokens
@@ -1468,16 +1472,9 @@ func runTouchWatch(cfg Config) error {
 		}
 	}
 
-	if cfg.AgentPost != "" {
-		formatter := NewLoopFormatter(cfg.Stderr)
-		formatter.PhaseAgentHeader("post")
-		if cfg.Verbose {
-			fmt.Fprintf(cfg.Stderr, "  prompt: %s\n", cfg.AgentPost)
-		}
-		env := phaseEnv{phase: "post", iteration: 0, maxIter: max, runID: cfg.RunID, model: cfg.Model, provider: cfg.Provider, label: cfg.Label}
-		if err := runPhaseAgent(cfg, cfg.AgentPost, env, cfg.Stderr); err != nil {
-			return fmt.Errorf("agent-post failed: %w", err)
-		}
+	// Final agent-post if tasks were processed before loop ended
+	if err := runQueueAgentPost(cfg, &ranTask, 0, max); err != nil {
+		return err
 	}
 
 	writeSummary(cfg, stats)
