@@ -1641,19 +1641,34 @@ func RunLoop(cfg Config) error {
 			}
 		}
 
-		// Wait between iterations (skip after last), interruptible by shutdown or wake
-		if (max == 0 || i < max) && (cfg.Delay > 0 || cfg.Fuzz > 0) {
-			d := computeDelay(cfg.Delay, cfg.Fuzz)
-			if d > 0 {
-				fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
-				waitDone := time.After(d)
+		// Wait between iterations (skip after last), interruptible by shutdown, wake, or manual trigger
+		if max == 0 || i < max {
+			if cfg.Delay > 0 || cfg.Fuzz > 0 {
+				d := computeDelay(cfg.Delay, cfg.Fuzz)
+				if d > 0 {
+					fmt.Fprintf(cfg.Stderr, "waiting %v before next iteration\n", d)
+					select {
+					case <-time.After(d):
+					case <-cfg.Shutdown:
+						writeSummary(cfg, stats)
+						return ErrInterrupted
+					case <-wakeCh(&cfg):
+						fmt.Fprintf(cfg.Stderr, "wake signal received, starting next iteration\n")
+					case <-cfg.ManualTrigger:
+						fmt.Fprintf(cfg.Stderr, "manual trigger, starting next iteration\n")
+					}
+				}
+			} else if cfg.Every > 0 {
+				fmt.Fprintf(cfg.Stderr, "Next run in %s\n", formatWaitDuration(cfg.Every))
 				select {
-				case <-waitDone:
+				case <-time.After(cfg.Every):
 				case <-cfg.Shutdown:
 					writeSummary(cfg, stats)
 					return ErrInterrupted
 				case <-wakeCh(&cfg):
 					fmt.Fprintf(cfg.Stderr, "wake signal received, starting next iteration\n")
+				case <-cfg.ManualTrigger:
+					fmt.Fprintf(cfg.Stderr, "manual trigger, starting next iteration\n")
 				}
 			}
 		}
