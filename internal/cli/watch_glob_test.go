@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // --- isGlobPattern ---

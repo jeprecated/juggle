@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // runTaskState tracks state for running watch tasks across iterations.

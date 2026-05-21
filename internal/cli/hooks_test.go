@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // TestRunHook_Success verifies a successful hook command runs and returns nil.

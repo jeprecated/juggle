@@ -1,6 +1,6 @@
 package cli
 
-import "github.com/ohare93/juggle/internal/pipeline"
+import "github.com/jeprecated/juggle/internal/pipeline"
 
 // AdaptConfigToPipeline converts a Config's lifecycle hook flags into an
 // equivalent Pipeline representation. The main agent prompt (Content) becomes

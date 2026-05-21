@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // funcRunner delegates Run to a function; useful for ad-hoc test runners.

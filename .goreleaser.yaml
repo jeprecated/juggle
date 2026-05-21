@@ -49,7 +49,7 @@ changelog:
 
 release:
   github:
-    owner: ohare93
+    owner: jeprecated
     name: juggle
   draft: false
   prerelease: auto
@@ -57,10 +57,10 @@ release:
 brews:
   - name: juggle
     repository:
-      owner: ohare93
+      owner: jeprecated
       name: tap
     directory: Formula
-    homepage: https://github.com/ohare93/juggle
+    homepage: https://github.com/jeprecated/juggle
     description: Minimal agent loop runner
     license: MIT
     install: |
@@ -71,9 +71,9 @@ brews:
 scoops:
   - name: juggle
     repository:
-      owner: ohare93
+      owner: jeprecated
       name: scoop
     directory: bucket
-    homepage: https://github.com/ohare93/juggle
+    homepage: https://github.com/jeprecated/juggle
     description: Minimal agent loop runner
     license: MIT

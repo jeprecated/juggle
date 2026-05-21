@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // closeOnFirstCallRunner closes shutdown after its first Run call.

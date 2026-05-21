@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ohare93/juggle/internal/agent/provider"
+	"github.com/jeprecated/juggle/internal/agent/provider"
 )
 
 // printDryRun writes a full dry-run preview to w showing every configured

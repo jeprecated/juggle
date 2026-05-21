@@ -1,4 +1,4 @@
-module github.com/ohare93/juggle
+module github.com/jeprecated/juggle
 
 go 1.25.0
 

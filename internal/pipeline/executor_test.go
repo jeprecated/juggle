@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ohare93/juggle/internal/agent"
-	"github.com/ohare93/juggle/internal/pipeline"
+	"github.com/jeprecated/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/pipeline"
 )
 
 // normalizeText strips carriage returns and trailing spaces before newlines,

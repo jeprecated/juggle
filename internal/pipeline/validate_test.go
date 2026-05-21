@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/pipeline"
+	"github.com/jeprecated/juggle/internal/pipeline"
 )
 
 // --- helpers ---

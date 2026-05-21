@@ -55,7 +55,7 @@ export JUGGLE_PROMPTS=~/prompts
 juggle loop @tdd @fix "broken email validation" -n 5
 ```
 
-[prompt-lego](https://github.com/ohare93/prompt-lego) is a starter kit of reusable prompt files that work out of the box.
+[prompt-lego](https://github.com/jeprecated/prompt-lego) is a starter kit of reusable prompt files that work out of the box.
 
 ```bash
 # Add a test gate -- stop when tests pass
@@ -72,7 +72,7 @@ juggle loop @fix "broken email validation" --agent-after @code-review -n 5
 juggle queue @tdd --watch tasks/ready/
 ```
 
-`juggle queue --watch` runs a fresh agent session for each file in a directory, and waits for new files to appear. That pairs naturally with a task queue like [frontloop](https://github.com/ohare93/frontloop), which stores tasks as markdown files in `.frontloop/ready/` -- you plan tasks while a background juggle loop works through them. But juggle doesn't care where tasks come from -- a directory of markdown files, a script that dumps issues, or anything else that puts files in a folder.
+`juggle queue --watch` runs a fresh agent session for each file in a directory, and waits for new files to appear. That pairs naturally with a task queue like [frontloop](https://github.com/jeprecated/frontloop), which stores tasks as markdown files in `.frontloop/ready/` -- you plan tasks while a background juggle loop works through them. But juggle doesn't care where tasks come from -- a directory of markdown files, a script that dumps issues, or anything else that puts files in a folder.
 
 All positional args are prompt content -- strings and `@file` references join into the final prompt. Point `JUGGLE_PROMPTS` at a directory of reusable prompts and compose them like lego pieces.
 
@@ -125,25 +125,25 @@ You are a careful bug-fixing agent...
 **macOS (Homebrew):**
 
 ```bash
-brew tap ohare93/tap && brew install juggle
+brew tap jeprecated/tap && brew install juggle
 ```
 
 **Windows (Scoop):**
 
 ```bash
-scoop bucket add ohare93 https://github.com/ohare93/scoop && scoop install juggle
+scoop bucket add jeprecated https://github.com/jeprecated/scoop && scoop install juggle
 ```
 
 **Linux:**
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/ohare93/juggle/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/jeprecated/juggle/main/install.sh | bash
 ```
 
 **Go:**
 
 ```bash
-go install github.com/ohare93/juggle/cmd/juggle@latest
+go install github.com/jeprecated/juggle/cmd/juggle@latest
 ```
 
 ## Features

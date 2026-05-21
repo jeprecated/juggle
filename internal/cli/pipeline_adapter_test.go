@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/ohare93/juggle/internal/pipeline"
+	"github.com/jeprecated/juggle/internal/pipeline"
 )
 
 func minAdapterConfig() Config {

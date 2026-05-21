@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 func TestReadStdin(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // TestRunLoop_PipelineGateOff_OldPath verifies the old path is used when env var is unset.

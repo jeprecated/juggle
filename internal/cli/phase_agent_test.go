@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 // --- agent-pre ---

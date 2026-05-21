@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/ohare93/juggle/internal/cli"
+	"github.com/jeprecated/juggle/internal/cli"
 )
 
 // version is set at build time via -ldflags

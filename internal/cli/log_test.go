@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ohare93/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/agent"
 )
 
 func TestParseLastIteration_NonexistentFile(t *testing.T) {

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
-	"github.com/ohare93/juggle/internal/cli"
+	"github.com/jeprecated/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/cli"
 )
 
 func TestBasicRun(t *testing.T) {

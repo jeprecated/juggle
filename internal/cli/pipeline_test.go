@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ohare93/juggle/internal/agent"
-	"github.com/ohare93/juggle/internal/pipeline"
+	"github.com/jeprecated/juggle/internal/agent"
+	"github.com/jeprecated/juggle/internal/pipeline"
 )
 
 func TestPipelineSubcommandIsRegistered(t *testing.T) {
